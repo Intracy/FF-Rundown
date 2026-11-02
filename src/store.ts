@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
-import { LiveState, Rundown } from './types';
-import { emptyLive } from './live';
+import { EventFolder, LiveState, Rundown } from './types';
+import { normalizeLive } from './live';
+import { normalizeRundown } from './model';
 import { makeSample } from './sample';
-import { ServerState, SyncMsg, SyncStatus, sync } from './sync';
+import { ServerState, ShareInfo, SyncMsg, SyncStatus, sync } from './sync';
 
 const KEY = 'taktgeber:v1';
 const UI_KEY = 'taktgeber:ui';
@@ -10,16 +11,27 @@ const UI_KEY = 'taktgeber:ui';
 export interface UiPrefs {
   follow: boolean;
   locked: boolean;
+  /** Je Ablauf: für dieses Gerät ausgeblendete Spalten */
+  hiddenCols: Record<string, string[]>;
+  /** Je Ablauf: private Notizspalte anzeigen */
+  showPrivate: Record<string, boolean>;
+  /** Je Ablauf und Cue: private Notizen (nur auf diesem Gerät) */
+  privateNotes: Record<string, Record<string, string>>;
 }
 
 export interface AppState {
   rundowns: Record<string, Rundown>;
+  events: Record<string, EventFolder>;
   live: Record<string, LiveState>;
   deleted: Record<string, number>;
   activeId: string;
   syncStatus: SyncStatus;
   peers: number;
   ui: UiPrefs;
+  /** Zugriff über Gast-Link: nur dieser Ablauf, ggf. nur lesen */
+  share: ShareInfo | null;
+  authRequired: boolean;
+  authError: string;
   undoDepth: number;
   redoDepth: number;
 }
@@ -44,26 +56,27 @@ function write(key: string, value: unknown) {
 /** ID des automatisch angelegten Beispiels, solange es unverändert ist (wird bei Server-Daten verworfen) */
 let pristineId: string | null = null;
 
+const normAll = (rs: Record<string, Rundown>) => Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, normalizeRundown(v)]));
+const normLive = (ls: Record<string, LiveState>) => Object.fromEntries(Object.entries(ls ?? {}).map(([k, v]) => [k, normalizeLive(v)]));
+
 function initial(): AppState {
-  const saved = read<{ rundowns: Record<string, Rundown>; live: Record<string, LiveState>; deleted?: Record<string, number>; activeId: string }>(KEY);
-  const ui = { follow: true, locked: false, ...(read<UiPrefs>(UI_KEY) ?? {}) };
-  if (saved && saved.rundowns && Object.keys(saved.rundowns).length) {
+  const saved = read<{ rundowns: Record<string, Rundown>; events?: Record<string, EventFolder>; live: Record<string, LiveState>; deleted?: Record<string, number>; activeId: string }>(KEY);
+  const ui: UiPrefs = { follow: true, locked: false, hiddenCols: {}, showPrivate: {}, privateNotes: {}, ...(read<UiPrefs>(UI_KEY) ?? {}) };
+  const base = { syncStatus: 'local' as SyncStatus, peers: 1, ui, share: null, authRequired: false, authError: '', undoDepth: 0, redoDepth: 0 };
+  if (!sync.isShareLink && saved && saved.rundowns && Object.keys(saved.rundowns).length) {
     const ids = Object.keys(saved.rundowns);
     return {
-      rundowns: saved.rundowns,
-      live: saved.live ?? {},
+      ...base,
+      rundowns: normAll(saved.rundowns),
+      events: saved.events ?? {},
+      live: normLive(saved.live),
       deleted: saved.deleted ?? {},
       activeId: ids.includes(saved.activeId) ? saved.activeId : ids[0],
-      syncStatus: 'local',
-      peers: 1,
-      ui,
-      undoDepth: 0,
-      redoDepth: 0,
     };
   }
   const r = makeSample();
   pristineId = r.id;
-  return { rundowns: { [r.id]: r }, live: {}, deleted: {}, activeId: r.id, syncStatus: 'local', peers: 1, ui, undoDepth: 0, redoDepth: 0 };
+  return { ...base, rundowns: { [r.id]: r }, events: {}, live: {}, deleted: {}, activeId: r.id };
 }
 
 let state: AppState = initial();
@@ -83,12 +96,15 @@ function set(patch: Partial<AppState>) {
   listeners.forEach((l) => l());
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    write(KEY, { rundowns: state.rundowns, live: state.live, deleted: state.deleted, activeId: state.activeId });
+    // Gast-Links speichern nichts dauerhaft in fremde Browser
+    if (!state.share) write(KEY, { rundowns: state.rundowns, events: state.events, live: state.live, deleted: state.deleted, activeId: state.activeId });
     write(UI_KEY, state.ui);
   }, 250);
 }
 
 export const now = () => sync.now();
+
+export const isReadOnly = () => state.share?.mode === 'view';
 
 export const store = {
   get: () => state,
@@ -105,10 +121,9 @@ export const store = {
     set({ ui: { ...state.ui, ...patch } });
   },
 
-  /**
-   * Ablauf ändern. coalesce bündelt schnelle Folgeänderungen (z. B. Tippen) zu einem Undo-Schritt.
-   */
+  /** Ablauf ändern. coalesce bündelt schnelle Folgeänderungen (z. B. Tippen) zu einem Undo-Schritt. */
   updateRundown(id: string, fn: (r: Rundown) => Rundown, coalesce?: string) {
+    if (isReadOnly()) return;
     const prev = state.rundowns[id];
     if (!prev) return;
     if (id === pristineId) pristineId = null;
@@ -128,11 +143,9 @@ export const store = {
   },
 
   undo(id: string) {
-    const stack = undo.get(id);
-    const prev = stack?.pop();
-    if (!prev) return;
-    const cur = state.rundowns[id];
-    redo.set(id, [...(redo.get(id) ?? []), cur]);
+    const prev = undo.get(id)?.pop();
+    if (!prev || isReadOnly()) return;
+    redo.set(id, [...(redo.get(id) ?? []), state.rundowns[id]]);
     lastKey = '';
     const restored = { ...prev, updatedAt: now() };
     set({ rundowns: { ...state.rundowns, [id]: restored } });
@@ -140,9 +153,8 @@ export const store = {
   },
 
   redo(id: string) {
-    const stack = redo.get(id);
-    const nxt = stack?.pop();
-    if (!nxt) return;
+    const nxt = redo.get(id)?.pop();
+    if (!nxt || isReadOnly()) return;
     undo.set(id, [...(undo.get(id) ?? []), state.rundowns[id]]);
     lastKey = '';
     const restored = { ...nxt, updatedAt: now() };
@@ -150,13 +162,15 @@ export const store = {
     sync.send({ t: 'rundown', rundown: restored });
   },
 
-  addRundown(r: Rundown) {
-    const rr = { ...r, updatedAt: now() };
-    set({ rundowns: { ...state.rundowns, [rr.id]: rr }, activeId: rr.id });
+  addRundown(r: Rundown, activate = true) {
+    if (state.share) return;
+    const rr = { ...normalizeRundown(r), updatedAt: now() };
+    set({ rundowns: { ...state.rundowns, [rr.id]: rr }, ...(activate ? { activeId: rr.id } : {}) });
     sync.send({ t: 'rundown', rundown: rr });
   },
 
   deleteRundown(id: string) {
+    if (state.share) return;
     const rundowns = { ...state.rundowns };
     delete rundowns[id];
     const live = { ...state.live };
@@ -173,30 +187,64 @@ export const store = {
     sync.send({ t: 'delete', id, at });
   },
 
+  saveEvent(e: EventFolder) {
+    if (state.share) return;
+    const ev = { ...e, updatedAt: now() };
+    set({ events: { ...state.events, [ev.id]: ev } });
+    sync.send({ t: 'event', event: ev });
+  },
+
+  deleteEvent(id: string) {
+    if (state.share) return;
+    const events = { ...state.events };
+    delete events[id];
+    const at = now();
+    set({ events, deleted: { ...state.deleted, [id]: at } });
+    sync.send({ t: 'delete', id, at });
+    // Abläufe bleiben erhalten und wandern zurück in die Übersicht
+    for (const r of Object.values(state.rundowns)) if (r.eventId === id) store.updateRundown(r.id, (x) => ({ ...x, eventId: null }));
+  },
+
   live(id: string): LiveState {
-    return state.live[id] ?? emptyLive();
+    return state.live[id] ?? normalizeLive(null);
   },
 
   setLive(id: string, fn: (l: LiveState) => LiveState) {
+    if (isReadOnly()) return;
     if (id === pristineId) pristineId = null;
-    const cur = state.live[id] ?? emptyLive();
+    const cur = state.live[id] ?? normalizeLive(null);
     const nxt = fn(cur);
     if (nxt === cur) return;
     const stamped = { ...nxt, updatedAt: now() };
     set({ live: { ...state.live, [id]: stamped } });
     sync.send({ t: 'live', id, live: stamped });
   },
+
+  login(password: string) {
+    set({ authError: '' });
+    sync.login(password);
+  },
 };
 
 function applyMsg(m: SyncMsg) {
   if (m.t === 'rundown') {
-    const cur = state.rundowns[m.rundown.id];
-    if (state.deleted[m.rundown.id]) return;
-    if (!cur || m.rundown.updatedAt >= cur.updatedAt) set({ rundowns: { ...state.rundowns, [m.rundown.id]: m.rundown } });
+    const r = normalizeRundown(m.rundown);
+    const cur = state.rundowns[r.id];
+    if (state.deleted[r.id]) return;
+    if (!cur || r.updatedAt >= cur.updatedAt) set({ rundowns: { ...state.rundowns, [r.id]: r } });
   } else if (m.t === 'live') {
     const cur = state.live[m.id];
-    if (!cur || m.live.updatedAt >= cur.updatedAt) set({ live: { ...state.live, [m.id]: m.live } });
+    if (!cur || m.live.updatedAt >= cur.updatedAt) set({ live: { ...state.live, [m.id]: normalizeLive(m.live) } });
+  } else if (m.t === 'event') {
+    const cur = state.events[m.event.id];
+    if (!cur || m.event.updatedAt >= cur.updatedAt) set({ events: { ...state.events, [m.event.id]: m.event } });
   } else if (m.t === 'delete') {
+    if (state.events[m.id]) {
+      const events = { ...state.events };
+      delete events[m.id];
+      set({ events, deleted: { ...state.deleted, [m.id]: m.at } });
+      return;
+    }
     if (!state.rundowns[m.id]) return;
     const rundowns = { ...state.rundowns };
     delete rundowns[m.id];
@@ -206,7 +254,23 @@ function applyMsg(m: SyncMsg) {
   }
 }
 
-function applyInit(s: ServerState) {
+function applyInit(s: ServerState, share: ShareInfo | null) {
+  if (share) {
+    // Gast: ausschließlich den freigegebenen Ablauf übernehmen
+    const r = s.rundowns?.[share.rundownId];
+    if (!r) return;
+    pristineId = null;
+    set({
+      rundowns: { [r.id]: normalizeRundown(r) },
+      live: s.live?.[r.id] ? { [r.id]: normalizeLive(s.live[r.id]) } : {},
+      events: {},
+      activeId: r.id,
+      share,
+      authRequired: false,
+      ui: share.mode === 'view' ? { ...state.ui, locked: true } : state.ui,
+    });
+    return;
+  }
   const serverHasData = Object.keys(s.rundowns ?? {}).length > 0;
   let localActive = state.activeId;
   if (pristineId && serverHasData) {
@@ -226,29 +290,39 @@ function applyInit(s: ServerState) {
   for (const id of ids) {
     if (deleted[id]) continue;
     const local = state.rundowns[id];
-    const remote = s.rundowns?.[id];
+    const remote = s.rundowns?.[id] ? normalizeRundown(s.rundowns[id]) : undefined;
     const pick = !remote || (local && local.updatedAt > remote.updatedAt) ? local : remote;
     rundowns[id] = pick;
     if (pick === local && local) sync.send({ t: 'rundown', rundown: local });
     const ll = state.live[id];
-    const rl = s.live?.[id];
+    const rl = s.live?.[id] ? normalizeLive(s.live[id]) : undefined;
     const lp = !rl || (ll && ll.updatedAt > rl.updatedAt) ? ll : rl;
     if (lp) {
       live[id] = lp;
       if (lp === ll && rl !== ll) sync.send({ t: 'live', id, live: ll });
     }
   }
+  const events: Record<string, EventFolder> = {};
+  for (const id of new Set([...Object.keys(state.events), ...Object.keys(s.events ?? {})])) {
+    if (deleted[id]) continue;
+    const a = state.events[id];
+    const b = s.events?.[id];
+    const pick = !b || (a && a.updatedAt > b.updatedAt) ? a : b;
+    events[id] = pick;
+    if (pick === a && a) sync.send({ t: 'event', event: a });
+  }
   if (!Object.keys(rundowns).length) return;
   const onAir = Object.keys(rundowns).find((id) => live[id]?.status === 'running' || live[id]?.status === 'paused');
   const newest = Object.values(rundowns).sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
   const activeId = rundowns[localActive] ? localActive : onAir ?? newest;
-  set({ rundowns, live, deleted, activeId });
+  set({ rundowns, live, events, deleted, activeId, authRequired: false, share: null });
 }
 
 sync.start({
   onInit: applyInit,
   onMsg: applyMsg,
   onStatus: (syncStatus, peers) => set({ syncStatus, peers }),
+  onAuthRequired: (error) => set({ authRequired: true, authError: error }),
 });
 
 export function useApp(): AppState {

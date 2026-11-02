@@ -1,11 +1,14 @@
 import { Cue, LiveState, Rundown, isCue } from './types';
 import { DAY, epochAt } from './time';
 import { elapsedOf, hardEpoch, playable, resolveNext } from './live';
+import { cueLabel } from './model';
 
 export type CueStatus = 'done' | 'missed' | 'current' | 'next' | 'upcoming' | 'skipped';
 
 export interface CueTime {
   num: number | null;
+  /** Nummer inkl. Präfix und Stellen laut Einstellungen */
+  label: string;
   plannedStart: number;
   plannedEnd: number;
   /** Live-Projektion (vor der Show = Planung) */
@@ -43,7 +46,8 @@ export interface Timeline {
 }
 
 export function computeTimeline(r: Rundown, l: LiveState, now: number): Timeline {
-  const showStart = epochAt(r.date, r.start);
+  const tz = r.settings?.timezone ?? '';
+  const showStart = epochAt(r.date, r.start, tz);
   const list = playable(r);
   const cues: Record<string, CueTime> = {};
 
@@ -106,12 +110,13 @@ export function computeTimeline(r: Rundown, l: LiveState, now: number): Timeline
   for (const item of r.items) {
     if (!isCue(item)) continue;
     if (item.skip) {
-      cues[item.id] = { num: null, plannedStart: 0, plannedEnd: 0, start: 0, end: 0, gap: null, status: 'skipped', actualDur: null };
+      cues[item.id] = { num: null, label: '–', plannedStart: 0, plannedEnd: 0, start: 0, end: 0, gap: null, status: 'skipped', actualDur: null };
       continue;
     }
     const p = planned[item.id];
     const v = live[item.id];
-    cues[item.id] = { num: ++n, plannedStart: p.s, plannedEnd: p.e, start: v.s, end: v.e, gap: v.gap, status: v.status, actualDur: v.actual };
+    n++;
+    cues[item.id] = { num: n, label: cueLabel(r, n), plannedStart: p.s, plannedEnd: p.e, start: v.s, end: v.e, gap: v.gap, status: v.status, actualDur: v.actual };
   }
 
   // 4) Gruppen (Überschrift bis zur nächsten Überschrift)
@@ -143,7 +148,7 @@ export function computeTimeline(r: Rundown, l: LiveState, now: number): Timeline
   // 5) Gesamtende, Über/Unter
   const calcEnd = l.status === 'ended' ? l.showEnd ?? now : list.length ? live[list[list.length - 1].id].e : showStart;
   let targetEnd = plannedEnd;
-  if (r.plannedEnd != null) targetEnd = epochAt(r.date, r.plannedEnd + (r.plannedEnd < r.start - DAY / 2 ? DAY : 0));
+  if (r.plannedEnd != null) targetEnd = epochAt(r.date, r.plannedEnd + (r.plannedEnd < r.start - DAY / 2 ? DAY : 0), tz);
 
   // 6) Nächster Fixstart
   let nextHard: Timeline['nextHard'] = null;

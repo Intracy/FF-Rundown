@@ -11,7 +11,7 @@ ENV NODE_ENV=production PORT=8787 DATA_DIR=/data
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
-COPY server ./server
+COPY --from=build /app/server ./server
 VOLUME /data
 EXPOSE 8787
 CMD ["node", "server/index.mjs"]

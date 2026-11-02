@@ -1,5 +1,79 @@
-const pad = (n: number) => String(n).padStart(2, '0');
+import type { ClockMode } from './types';
+
+const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 export const DAY = 86_400_000;
+
+/* ---------- Anzeige-Kontext (Zeitzone + Uhrformat des aktiven Ablaufs) ---------- */
+let displayTz = '';
+let clockMode: ClockMode = '24';
+
+export function setDisplay(tz: string, mode: ClockMode) {
+  displayTz = tz;
+  clockMode = mode;
+}
+
+export const deviceTimeZone = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    return '';
+  }
+})();
+
+const dtfCache = new Map<string, Intl.DateTimeFormat>();
+function dtf(tz: string) {
+  let f = dtfCache.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    dtfCache.set(tz, f);
+  }
+  return f;
+}
+
+/** Versatz der Zeitzone in ms (Wandzeit − UTC) zum Zeitpunkt epoch */
+export function tzOffset(epoch: number, tz: string): number {
+  if (!tz) return -new Date(epoch).getTimezoneOffset() * 60_000;
+  try {
+    const p: Record<string, number> = {};
+    for (const part of dtf(tz).formatToParts(new Date(epoch))) if (part.type !== 'literal') p[part.type] = +part.value;
+    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second);
+    return asUtc - (epoch - (((epoch % 1000) + 1000) % 1000));
+  } catch {
+    return -new Date(epoch).getTimezoneOffset() * 60_000;
+  }
+}
+
+/** Wanduhr-Bestandteile einer Epoch-Zeit in der Zeitzone */
+export function wall(epoch: number, tz = displayTz) {
+  const d = new Date(epoch + tzOffset(epoch, tz));
+  return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), m: d.getUTCMinutes(), s: d.getUTCSeconds() };
+}
+
+/** Epoch-Zeit für Datum (YYYY-MM-DD) + ms seit Mitternacht in der Zeitzone */
+export function epochAt(date: string, msOfDayValue: number, tz = ''): number {
+  const [y, mo, d] = date.split('-').map(Number);
+  const guess = Date.UTC(y || 1970, (mo || 1) - 1, d || 1) + Math.round(msOfDayValue / 1000) * 1000;
+  const off = tzOffset(guess, tz);
+  let t = guess - off;
+  const off2 = tzOffset(t, tz);
+  if (off2 !== off) t = guess - off2;
+  return t;
+}
+
+/** ms seit Mitternacht (0..24h) einer Epoch-Zeit in der Zeitzone */
+export function msOfDay(epoch: number, tz = displayTz): number {
+  const w = wall(epoch, tz);
+  return ((w.h * 60 + w.m) * 60 + w.s) * 1000;
+}
 
 function hms(totalSeconds: number, forceHours = false): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -24,21 +98,39 @@ export function fmtCountdown(ms: number): { text: string; over: boolean } {
 /** Abweichung: positiv = zu spät */
 export function fmtOffset(ms: number): { text: string; state: 'late' | 'early' | 'ontime' } {
   if (Math.abs(ms) < 1000) return { text: 'Pünktlich', state: 'ontime' };
-  return ms > 0
-    ? { text: `${fmtDur(ms)} zu spät`, state: 'late' }
-    : { text: `${fmtDur(-ms)} zu früh`, state: 'early' };
+  return ms > 0 ? { text: `${fmtDur(ms)} zu spät`, state: 'late' } : { text: `${fmtDur(-ms)} zu früh`, state: 'early' };
 }
 
+function fmtHM(h: number, m: number, s: number, seconds: boolean, mode = clockMode): string {
+  const sec = seconds ? `:${pad(s)}` : '';
+  let m12 = mode;
+  if (m12 === 'auto') {
+    try {
+      m12 = (new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions() as { hourCycle?: string }).hourCycle?.startsWith('h1') ? '12' : '24';
+    } catch {
+      m12 = '24';
+    }
+  }
+  if (m12 === '24') return `${pad(h)}:${pad(m)}${sec}`;
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${pad(m)}${sec}${m12 === '12' ? (h < 12 ? ' AM' : ' PM') : ''}`;
+}
+
+/** Uhrzeit einer Epoch-Zeit in Zeitzone und Format des aktiven Ablaufs */
 export function fmtClock(epoch: number, seconds = true): string {
-  const d = new Date(epoch);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}` + (seconds ? `:${pad(d.getSeconds())}` : '');
+  const w = wall(epoch);
+  return fmtHM(w.h, w.m, w.s, seconds);
 }
 
-export function fmtTimeOfDay(msOfDay: number, seconds = true): string {
-  const t = ((Math.round(msOfDay / 1000) % 86400) + 86400) % 86400;
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  return `${pad(h)}:${pad(m)}` + (seconds ? `:${pad(t % 60)}` : '');
+export function fmtTimeOfDay(msOfDayValue: number, seconds = true): string {
+  const t = ((Math.round(msOfDayValue / 1000) % 86400) + 86400) % 86400;
+  return fmtHM(Math.floor(t / 3600), Math.floor((t % 3600) / 60), t % 60, seconds);
+}
+
+/** Uhrzeit in 24 h für Eingabefelder (unabhängig vom Anzeigeformat) */
+export function fmtTimeInput(msOfDayValue: number, seconds = true): string {
+  const t = ((Math.round(msOfDayValue / 1000) % 86400) + 86400) % 86400;
+  return fmtHM(Math.floor(t / 3600), Math.floor((t % 3600) / 60), t % 60, seconds, '24');
 }
 
 /**
@@ -68,9 +160,16 @@ export function parseDur(input: string): number | null {
   return Math.round(total);
 }
 
-/** Uhrzeit-Eingabe: "19:30", "1930", "19.30", "19:30:15" → ms seit Mitternacht */
+/** Uhrzeit-Eingabe: "19:30", "1930", "19.30", "19:30:15", "7:30 pm" → ms seit Mitternacht */
 export function parseClock(input: string): number | null {
-  const s = input.trim().replace(/[.h]/g, ':');
+  let s = input.trim().toLowerCase();
+  let ampm: 'am' | 'pm' | null = null;
+  const ap = s.match(/\s*([ap])\.?\s*m\.?$/);
+  if (ap) {
+    ampm = ap[1] === 'a' ? 'am' : 'pm';
+    s = s.slice(0, ap.index).trim();
+  }
+  s = s.replace(/[.h]/g, ':');
   let m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (!m) {
     const d = s.match(/^(\d{1,2})(\d{2})$/);
@@ -78,35 +177,37 @@ export function parseClock(input: string): number | null {
     else if (/^\d{1,2}$/.test(s)) m = [s, s, '00', ''] as unknown as RegExpMatchArray;
   }
   if (!m) return null;
-  const h = +m[1];
+  let h = +m[1];
   const mi = +m[2];
   const se = m[3] ? +m[3] : 0;
+  if (ampm) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (ampm === 'pm' ? 12 : 0);
+  }
   if (h > 23 || mi > 59 || se > 59) return null;
   return ((h * 60 + mi) * 60 + se) * 1000;
 }
 
-/** Epoch-Zeit für Datum (YYYY-MM-DD) + ms seit Mitternacht in lokaler Zeit */
-export function epochAt(date: string, msOfDay: number): number {
-  const [y, mo, d] = date.split('-').map(Number);
-  const secs = Math.round(msOfDay / 1000);
-  return new Date(y || 1970, (mo || 1) - 1, d || 1, Math.floor(secs / 3600), Math.floor((secs % 3600) / 60), secs % 60).getTime();
-}
-
-/** ms seit Mitternacht (0..24h) einer Epoch-Zeit */
-export function msOfDay(epoch: number): number {
-  const d = new Date(epoch);
-  return ((d.getHours() * 60 + d.getMinutes()) * 60 + d.getSeconds()) * 1000;
-}
-
-export function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export function todayISO(tz = deviceTimeZone): string {
+  const w = wall(Date.now(), tz);
+  return `${w.y}-${pad(w.mo)}-${pad(w.d)}`;
 }
 
 export function fmtDate(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
   if (!y) return date;
   return new Date(y, m - 1, d).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** Häufige Zeitzonen für die Auswahl (vollständige Liste, wenn der Browser sie liefert) */
+export function timeZones(): string[] {
+  try {
+    const all = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone');
+    if (all && all.length) return all;
+  } catch {
+    /* ältere Browser */
+  }
+  return ['Europe/Berlin', 'Europe/Vienna', 'Europe/Zurich', 'Europe/London', 'Europe/Paris', 'Europe/Stockholm', 'UTC', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo'];
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 10);

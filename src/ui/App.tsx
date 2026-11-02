@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { now as clockNow, store, useApp } from '../store';
 import { computeTimeline } from '../timing';
 import * as L from '../live';
-import { emptyLive } from '../live';
+import { normalizeLive } from '../live';
+import { setDisplay } from '../time';
 import { RundownView } from './RundownView';
-import { TopBar, VIEWS, View } from './TopBar';
+import { DialogId, TopBar, VIEWS, View } from './TopBar';
 import { OutputView } from './OutputView';
 import { PrompterView } from './PrompterView';
-import { Help, ImportExport } from './Dialogs';
+import { Dashboard } from './Dashboard';
+import { CodeEntry, Help, ImportExport, LoginScreen, MentionsDialog, SettingsDialog, ShareDialog, TrashDialog, VariablesDialog } from './Dialogs';
+import { TextContext } from './common';
 
 function useClock(interval = 250) {
   const [t, setT] = useState(clockNow());
@@ -18,10 +21,11 @@ function useClock(interval = 250) {
   return t;
 }
 
-const isView = (v: string): v is View => VIEWS.some((x) => x.id === v);
+const ALL_VIEWS: View[] = ['uebersicht', 'ablauf', 'timer', 'prompter', 'code'];
+const isView = (v: string): v is View => (ALL_VIEWS as string[]).includes(v);
 
 function useHashView(): [View, (v: View) => void] {
-  const read = () => {
+  const read = (): View => {
     const h = location.hash.replace('#', '');
     return isView(h) ? h : 'ablauf';
   };
@@ -42,28 +46,39 @@ function useHashView(): [View, (v: View) => void] {
 
 export function App() {
   const app = useApp();
+  const [rawView, setView] = useHashView();
+  const view: View = app.share && rawView === 'uebersicht' ? 'ablauf' : rawView;
+  if (view === 'code') return <CodeEntry />;
+  if (app.authRequired) return <LoginScreen error={app.authError} />;
+  return <Main app={app} view={view} setView={setView} />;
+}
+
+function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: View; setView: (v: View) => void }) {
   const r = app.rundowns[app.activeId];
-  const live = app.live[r.id] ?? emptyLive();
+  const live = app.live[r.id] ?? normalizeLive(null);
   const now = useClock();
-  const [view, setView] = useHashView();
-  const [dialog, setDialog] = useState<null | 'io' | 'help'>(null);
+  const [dialog, setDialog] = useState<null | DialogId>(null);
+  const readonly = app.share?.mode === 'view';
+  setDisplay(r.settings.timezone, r.settings.clock);
   const tl = useMemo(() => computeTimeline(r, live, now), [r, live, now]);
+  const textCtx = useMemo(() => ({ variables: r.variables, mentions: r.mentions }), [r.variables, r.mentions]);
 
   // Automatisches Weiterschalten (Auto-Start)
   useEffect(() => {
+    if (readonly) return;
     const nxt = L.autoTick(r, live, now);
     if (nxt) store.setLive(r.id, () => nxt);
-  }, [now, r, live]);
+  }, [now, r, live, readonly]);
 
   useEffect(() => {
-    document.title = view === 'ablauf' ? `${r.title} · Taktgeber` : `${VIEWS.find((v) => v.id === view)?.label} · ${r.title}`;
+    document.title = view === 'uebersicht' ? 'Übersicht · Taktgeber' : view === 'ablauf' ? `${r.title} · Taktgeber` : `${VIEWS.find((v) => v.id === view)?.label} · ${r.title}`;
   }, [view, r.title]);
 
   // Tastenkürzel
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (dialog || t.closest('input, textarea, select, [contenteditable="true"], .pop')) return;
+      if (dialog || t.closest('input, textarea, select, [contenteditable="true"], .pop, .out-config')) return;
       const mod = e.metaKey || e.ctrlKey;
       const s = store.get();
       const id = s.activeId;
@@ -81,8 +96,9 @@ export function App() {
         return;
       }
       if (mod || e.altKey) return;
+      if (e.key === '0' && !s.share) return setView('uebersicht');
       if (e.key === '1' || e.key === '2' || e.key === '3') return setView(VIEWS[+e.key - 1].id);
-      if (view === 'prompter') return; // Prompter hat eigene Tasten
+      if (view === 'prompter' || view === 'uebersicht') return;
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -104,7 +120,7 @@ export function App() {
           set((l) => L.adjust(l, -60_000));
           break;
         case 'E':
-          if (e.shiftKey) set((l) => L.end(l, clockNow()));
+          if (e.shiftKey) set((l) => L.end(l, clockNow(), rd));
           break;
         case 'f':
         case 'F':
@@ -112,7 +128,7 @@ export function App() {
           break;
         case 'l':
         case 'L':
-          store.setUi({ locked: !s.ui.locked });
+          if (!s.share || s.share.mode === 'edit') store.setUi({ locked: !s.ui.locked });
           break;
         case '?':
           setDialog('help');
@@ -123,16 +139,38 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [dialog, view, setView]);
 
+  if (view === 'uebersicht')
+    return (
+      <TextContext.Provider value={textCtx}>
+        <div className="app view-uebersicht">
+          <Dashboard
+            app={app}
+            open={(id) => {
+              store.setActive(id);
+              setView('ablauf');
+            }}
+          />
+        </div>
+      </TextContext.Provider>
+    );
+
   return (
-    <div className={`app view-${view}`}>
-      <TopBar r={r} live={live} tl={tl} now={now} view={view} setView={setView} app={app} openDialog={setDialog} />
-      <main className="main">
-        {view === 'ablauf' && <RundownView rundown={r} live={live} tl={tl} now={now} locked={app.ui.locked} follow={app.ui.follow} />}
-        {view === 'timer' && <OutputView r={r} live={live} tl={tl} now={now} />}
-        {view === 'prompter' && <PrompterView r={r} live={live} tl={tl} />}
-      </main>
-      {dialog === 'io' && <ImportExport r={r} tl={tl} onClose={() => setDialog(null)} />}
-      {dialog === 'help' && <Help onClose={() => setDialog(null)} />}
-    </div>
+    <TextContext.Provider value={textCtx}>
+      <div className={`app view-${view}`}>
+        <TopBar r={r} live={live} tl={tl} now={now} view={view} setView={setView} app={app} openDialog={setDialog} />
+        <main className="main">
+          {view === 'ablauf' && <RundownView rundown={r} live={live} tl={tl} now={now} locked={app.ui.locked || readonly} follow={app.ui.follow} readonly={readonly} />}
+          {view === 'timer' && <OutputView r={r} live={live} tl={tl} now={now} readonly={readonly} />}
+          {view === 'prompter' && <PrompterView r={r} live={live} tl={tl} readonly={readonly} />}
+        </main>
+        {dialog === 'io' && <ImportExport r={r} tl={tl} onClose={() => setDialog(null)} />}
+        {dialog === 'help' && <Help onClose={() => setDialog(null)} />}
+        {dialog === 'settings' && <SettingsDialog r={r} app={app} tl={tl} onClose={() => setDialog(null)} />}
+        {dialog === 'variables' && <VariablesDialog r={r} onClose={() => setDialog(null)} />}
+        {dialog === 'mentions' && <MentionsDialog r={r} onClose={() => setDialog(null)} />}
+        {dialog === 'trash' && <TrashDialog r={r} onClose={() => setDialog(null)} />}
+        {dialog === 'share' && <ShareDialog r={r} onClose={() => setDialog(null)} />}
+      </div>
+    </TextContext.Provider>
   );
 }

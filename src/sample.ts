@@ -1,5 +1,6 @@
 import { Column, Cue, Heading, Rundown, Tint } from './types';
 import { parseClock, todayISO, uid } from './time';
+import { newSubTimer, normalizeRundown } from './model';
 
 const MIN = 60_000;
 
@@ -17,6 +18,7 @@ export function newCue(p: Partial<Cue> = {}): Cue {
     color: '',
     cells: {},
     script: '',
+    subTimers: [],
     ...p,
   };
 }
@@ -32,7 +34,7 @@ export function newColumn(p: Partial<Column> = {}): Column {
 export function blankRundown(): Rundown {
   const notes = newColumn({ name: 'Notizen', width: 260 });
   const now = Date.now();
-  return {
+  return normalizeRundown({
     id: uid(),
     title: 'Neuer Ablauf',
     date: todayISO(),
@@ -43,7 +45,7 @@ export function blankRundown(): Rundown {
     items: [newHeading('Teil 1'), newCue({ title: 'Opener' }), newCue({ title: 'Begrüßung' }), newCue({ title: 'Abmoderation', duration: 2 * MIN })],
     createdAt: now,
     updatedAt: now,
-  };
+  });
 }
 
 /** Beispielablauf, damit die App mit einem realistischen Arbeitsstand öffnet */
@@ -71,7 +73,7 @@ export function makeSample(): Rundown {
   });
 
   const now = Date.now();
-  return {
+  return normalizeRundown({
     id: uid(),
     title: 'Beispiel: Benefiz-Gala (Livestream)',
     date: todayISO(),
@@ -101,7 +103,7 @@ export function makeSample(): Rundown {
         duration: 4 * MIN,
         startMode: 'hard',
         hardStart: t('19:00'),
-        cells: cells('Bereit', 'Halbnah', 'Funk 1 (Moderation)', 'Bauchbinde Moderation'),
+        cells: cells('Bereit', 'Halbnah', 'Funk 1 (Moderation)', 'Bauchbinde Moderation', 'Spendenstand: $spendenstand'),
         script:
           'Guten Abend und herzlich willkommen – hier im Saal und an den Bildschirmen zu Hause!\n\nSchön, dass Sie heute dabei sind. Der ganze Abend steht im Zeichen eines guten Zwecks, und jede Spende hilft direkt vor Ort.\n\nBevor es losgeht, ein kurzer Blick auf das Programm …',
       }),
@@ -122,13 +124,15 @@ export function makeSample(): Rundown {
         title: 'Interview Projektpartner',
         subtitle: 'Zwei Gäste auf dem Sofa',
         duration: 8 * MIN,
-        cells: cells('In Arbeit', 'Handkamera', 'Funk 2 + 3', 'Bauchbinden Gäste'),
+        cells: cells('In Arbeit', 'Handkamera', 'Funk 2 + 3', 'Bauchbinden Gäste', 'Gäste kommen über @buehne-links'),
+        subTimers: [newSubTimer({ name: 'Publikumsfragen', duration: 3 * MIN, withCue: false, showOnOutput: true })],
         script:
           'Wie ist das Projekt entstanden?\n\nWas hat sich seit dem letzten Jahr verändert?\n\nWofür wird das Geld aus dem heutigen Abend konkret eingesetzt?',
       }),
       newCue({
         title: 'Spendenaufruf mit Einspieler',
         duration: 3 * MIN,
+        subTimers: [newSubTimer({ name: 'Einspieler', duration: 90_000, atZero: 'stop' })],
         color: 'orange',
         cells: cells('Offen', 'Totale', 'Zuspieler-Ton', 'Spendengrafik + QR-Code', 'Spendenstand vorher aktualisieren'),
       }),
@@ -157,7 +161,9 @@ export function makeSample(): Rundown {
         cells: cells('Bereit', 'Totale', 'Musik Abspann', 'Abspann', 'Danach Stream stoppen'),
       }),
     ],
+    variables: { spendenstand: '12.480 €', 'regie-funk': 'Kanal 3' },
+    mentions: { 'buehne-links': { key: 'buehne-links', name: 'Bühne links', description: 'Auftritt über die Seitenbühne links, Stufen beleuchtet. Inspizienz gibt Zeichen.' } },
     createdAt: now,
     updatedAt: now,
-  };
+  });
 }

@@ -1,6 +1,7 @@
 import { Column, Cue, Item, Rundown, isCue } from './types';
 import { Timeline } from './timing';
-import { fmtClock, fmtDur, fmtTimeOfDay, parseClock, parseDur, todayISO, uid } from './time';
+import { fmtClock, fmtDur, fmtTimeInput, parseClock, parseDur } from './time';
+import { cloneRundown, normalizeRundown } from './model';
 import { blankRundown, newColumn, newCue, newHeading } from './sample';
 
 function esc(v: string, sep: string) {
@@ -18,14 +19,14 @@ export function toCsv(r: Rundown, tl: Timeline, sep = ';'): string {
     if (!isCue(it)) return ['', 'Überschrift', '', '', '', it.title, '', '', '', '', ...r.columns.map(() => ''), ''];
     const t = tl.cues[it.id];
     return [
-      t?.num != null ? String(t.num) : '',
+      t?.num != null ? t.label : '',
       'Cue',
       t && !it.skip ? fmtClock(t.plannedStart) : '',
       t && !it.skip ? fmtClock(t.plannedEnd) : '',
       fmtDur(it.duration, true),
       it.title,
       it.subtitle,
-      it.startMode === 'hard' ? fmtTimeOfDay(it.hardStart) : '',
+      it.startMode === 'hard' ? fmtTimeInput(it.hardStart) : '',
       it.autoStart ? 'ja' : '',
       it.skip ? 'ja' : '',
       ...r.columns.map((c) => cellText(c, it.cells[c.id])),
@@ -130,18 +131,5 @@ export function fromCsv(text: string, title = 'Importierter Ablauf'): Rundown {
 export function fromJson(text: string): Rundown {
   const r = JSON.parse(text) as Rundown;
   if (!r || !Array.isArray(r.items) || !Array.isArray(r.columns)) throw new Error('Das ist keine Taktgeber-Sicherung.');
-  const colMap = new Map<string, string>();
-  const columns = r.columns.map((c) => {
-    const id = uid();
-    colMap.set(c.id, id);
-    return { ...c, id };
-  });
-  const items = r.items.map((it) => {
-    if (!isCue(it)) return { ...it, id: uid() };
-    const cells: Record<string, string> = {};
-    for (const [k, v] of Object.entries(it.cells ?? {})) if (colMap.has(k)) cells[colMap.get(k)!] = v;
-    return { ...newCue(), ...it, id: uid(), cells };
-  });
-  const t = Date.now();
-  return { ...blankRundown(), ...r, id: uid(), date: r.date || todayISO(), columns, items, createdAt: t, updatedAt: t };
+  return cloneRundown(normalizeRundown({ ...r, id: r.id || 'import' }), { isTemplate: false, eventId: null });
 }

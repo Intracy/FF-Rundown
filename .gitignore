@@ -2,3 +2,4 @@ node_modules
 dist
 dist-artifact
 data
+server/core.mjs
