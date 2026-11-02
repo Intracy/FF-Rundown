@@ -84,6 +84,22 @@ function moveItems(rid: string, ids: string[], targetId: string, pos: 'before' |
   });
 }
 
+/** Cue ↔ Überschrift. Beim Umwandeln eines Cues landet die Originalfassung im Papierkorb. */
+function convertItem(rid: string, id: string) {
+  edit(rid, (r) => {
+    const index = r.items.findIndex((x) => x.id === id);
+    const it = r.items[index];
+    if (!it) return r;
+    const items = [...r.items];
+    if (isCue(it)) {
+      items[index] = { kind: 'heading', id: uid(), title: it.title, color: it.color };
+      return { ...r, items, trash: [...r.trash, { id: uid(), at: Date.now(), index, item: it }] };
+    }
+    items[index] = newCue({ title: it.title, color: it.color });
+    return { ...r, items };
+  });
+}
+
 function cloneItem(it: Item): Item {
   return isCue(it) ? { ...it, id: uid(), cells: { ...it.cells }, subTimers: it.subTimers.map((t) => ({ ...t, id: uid() })) } : { ...it, id: uid() };
 }
@@ -102,6 +118,23 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
   const dragIds = useRef<string[]>([]);
   const sheet = useRef<HTMLDivElement>(null);
   const eye = usePopover();
+  const [addCount, setAddCount] = useState(1);
+  const [jumpOpen, setJumpOpen] = useState(false);
+  const [flashId, setFlashId] = useState<string | null>(null);
+
+  // Zu Cue springen: Strg/Cmd+K oder G (Ereignis aus App.tsx)
+  useEffect(() => {
+    const open = () => setJumpOpen(true);
+    window.addEventListener('tg-jump', open);
+    return () => window.removeEventListener('tg-jump', open);
+  }, []);
+  const jumpTo = (id: string) => {
+    setJumpOpen(false);
+    const el = sheet.current?.querySelector<HTMLElement>(`[data-id="${id}"]`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setFlashId(id);
+    setTimeout(() => setFlashId((f) => (f === id ? null : f)), 1600);
+  };
 
   const colW = (c: Column) => widths[c.id] ?? c.width;
   const cols = `var(--c-grip) var(--c-num) var(--c-start) var(--c-dur) minmax(260px, 1fr) ${visibleCols.map((c) => colW(c) + 'px').join(' ')}${showPrivate ? ' 220px' : ''} var(--c-end)`;
@@ -172,7 +205,8 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
     <>
       {selected.size > 0 && !readonly && <BatchBar r={r} selected={selected} clear={() => setSelected(new Set())} selectAll={() => setSelected(new Set(r.items.map((i) => i.id)))} locked={locked} />}
       <div className="sheet" ref={sheet}>
-        <div className={`grid hl-${r.settings.highlight}`} style={{ ['--cols' as string]: cols }} role="table" aria-label="Ablauf">
+        <div className={`grid hl-${r.settings.highlight}`} style={{ ['--cols' as string]: cols }} role="table" aria-label="Ablauf" data-flash={flashId ?? undefined}>
+          {flashId && <style>{`.grid[data-flash="${flashId}"] [data-id="${flashId}"]{animation:row-flash 1.6s ease-out}`}</style>}
           <div className="row head" role="row">
             <div className="c" role="columnheader" aria-label="Auswahl" />
             <div className="c" role="columnheader">#</div>
@@ -212,6 +246,9 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
                   <Icon name="plus" />
                 </button>
               )}
+              <button className="icon-btn" title="Zu Cue springen (Strg/Cmd+K oder G)" aria-label="Zu Cue springen" onClick={() => setJumpOpen(true)}>
+                <Icon name="search" />
+              </button>
               {!readonly && (
                 <button className={`icon-btn ${hiddenCount ? 'has' : ''}`} title="Spalten ein-/ausblenden" aria-label="Spalten ein- oder ausblenden" onClick={eye.open}>
                   <Icon name={hiddenCount ? 'eyeOff' : 'eye'} />
@@ -257,9 +294,21 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
 
         {!locked && (
           <div className="add-bar">
-            <button className="btn ghost" onClick={() => insertAfter(r.id, null, [newCue()])}>
-              <Icon name="plus" /> Cue
-            </button>
+            <span className="add-many">
+              <button className="btn ghost" onClick={() => insertAfter(r.id, null, Array.from({ length: addCount }, () => newCue()))}>
+                <Icon name="plus" /> {addCount === 1 ? 'Cue' : `${addCount} Cues`}
+              </button>
+              <input
+                id="add-count"
+                className="text-input num add-count"
+                type="number"
+                min={1}
+                max={50}
+                value={addCount}
+                aria-label="Anzahl neuer Cues"
+                onChange={(e) => setAddCount(Math.min(50, Math.max(1, Math.round(+e.target.value) || 1)))}
+              />
+            </span>
             <button className="btn ghost" onClick={() => insertAfter(r.id, null, [newHeading()])}>
               <Icon name="plus" /> Überschrift
             </button>
@@ -290,10 +339,73 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
                 Alle Spalten zeigen
               </button>
             )}
+            <div className="menu-list">
+              <button
+                onClick={() => {
+                  setHidden([]);
+                  if (!locked) edit(r.id, (rr) => ({ ...rr, columns: rr.columns.map((c) => ({ ...c, width: DEFAULT_COL_WIDTH })) }));
+                  eye.close();
+                }}
+              >
+                <Icon name="reset" size={14} /> Spaltenlayout zurücksetzen
+              </button>
+            </div>
           </div>
         </Popover>
       )}
+      {jumpOpen && <JumpBox r={r} tl={tl} onPick={jumpTo} onClose={() => setJumpOpen(false)} />}
     </>
+  );
+}
+
+const DEFAULT_COL_WIDTH = 180;
+
+/* ---------- Zu Cue springen ---------- */
+function JumpBox({ r, tl, onPick, onClose }: { r: Rundown; tl: Timeline; onPick: (id: string) => void; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [idx, setIdx] = useState(0);
+  const query = q.trim().toLowerCase();
+  const hits = r.items
+    .filter((it) => {
+      if (!query) return true;
+      const label = isCue(it) ? tl.cues[it.id]?.label.toLowerCase() ?? '' : '';
+      return label === query || label.endsWith(query) || it.title.toLowerCase().includes(query);
+    })
+    .slice(0, 12);
+  return (
+    <div className="modal-back" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="jump" role="dialog" aria-label="Zu Cue springen">
+        <input
+          id="jump-input"
+          className="text-input"
+          autoFocus
+          placeholder="Nummer oder Titel"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setIdx(0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onClose();
+            if (e.key === 'ArrowDown') (e.preventDefault(), setIdx((i) => Math.min(hits.length - 1, i + 1)));
+            if (e.key === 'ArrowUp') (e.preventDefault(), setIdx((i) => Math.max(0, i - 1)));
+            if (e.key === 'Enter' && hits[idx]) onPick(hits[idx].id);
+          }}
+        />
+        <ul className="jump-list" role="listbox">
+          {hits.map((it, i) => (
+            <li key={it.id} role="option" aria-selected={i === idx}>
+              <button className={i === idx ? 'on' : ''} onMouseEnter={() => setIdx(i)} onClick={() => onPick(it.id)}>
+                <span className="num jump-num">{isCue(it) ? tl.cues[it.id]?.label : '§'}</span>
+                <span className={isCue(it) ? '' : 'jump-heading'}>{it.title || 'Ohne Titel'}</span>
+                {isCue(it) && !it.skip && <span className="num hint small">{fmtClock(tl.cues[it.id].start, false)}</span>}
+              </button>
+            </li>
+          ))}
+          {!hits.length && <li className="hint">Nichts gefunden.</li>}
+        </ul>
+      </div>
+    </div>
   );
 }
 
@@ -677,6 +789,9 @@ function CueMenu({ r, cue, status, isFirst, locked, close }: { r: Rundown; cue: 
             <button onClick={() => (insertAfter(r.id, cue.id, [cloneItem(cue)]), close())}>
               <Icon name="copy" size={14} /> Duplizieren
             </button>
+            <button onClick={() => (convertItem(r.id, cue.id), close())} title="Titel und Farbe bleiben, Zeiten und Zellen gehen in den Papierkorb">
+              <Icon name="auto" size={14} /> In Überschrift umwandeln
+            </button>
             <button className="danger" onClick={() => (removeItems(r.id, new Set([cue.id])), close())}>
               <Icon name="trash" size={14} /> In den Papierkorb
             </button>
@@ -811,6 +926,9 @@ const HeadingRow = memo(function HeadingRow({
               </button>
               <button onClick={() => (insertAfter(r.id, h.id, [cloneItem(h)]), menu.close())}>
                 <Icon name="copy" size={14} /> Duplizieren
+              </button>
+              <button onClick={() => (convertItem(r.id, h.id), menu.close())}>
+                <Icon name="auto" size={14} /> In Cue umwandeln
               </button>
               <button className="danger" onClick={() => (removeItems(r.id, new Set([h.id])), menu.close())}>
                 <Icon name="trash" size={14} /> Überschrift löschen

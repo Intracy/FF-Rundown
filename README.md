@@ -17,6 +17,7 @@ Welche Funktionen einer typischen Rundown-Software abgedeckt sind und wie sie ge
 - **Text-Variablen** (`$schluessel`) und **Erwähnungen** (`@name` mit Beschreibung beim Darüberfahren), Vorschläge beim Tippen
 - **Papierkorb** für Cues, Überschriften und Spalten (30 Tage), **Zell-Verlauf** mit Wiederherstellen, Rückgängig/Wiederholen
 - Drag & Drop, Mehrfachauswahl (duplizieren, gruppieren, Gruppierung aufheben, an Anfang/Ende, färben, überspringen, löschen)
+- Mehrere Cues auf einmal anlegen, Cue ↔ Überschrift umwandeln, zu Cue springen (G oder Strg/Cmd+K), Spaltenlayout zurücksetzen, eigene Farbpalette je Ablauf
 - Einstellungen: Datum, **Zeitzone**, 24-/12-h-Format, Nummerierung (Präfix, Startwert, Stellen), Logo, Hervorhebung des laufenden Cues, Warnschwelle, Status, Event, Vorlage
 
 **Übersicht** (`#uebersicht`)

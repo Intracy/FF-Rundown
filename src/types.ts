@@ -160,6 +160,8 @@ export interface Rundown {
   mentions: Record<string, Mention>;
   trash: TrashEntry[];
   cellLog: CellChange[];
+  /** Eigene Farbwerte für die Zeilenfarben (überschreibt die Standardpalette) */
+  palette: Partial<Record<Exclude<Tint, ''>, string>>;
   eventId: string | null;
   isTemplate: boolean;
   status: RundownStatus;

@@ -1,6 +1,6 @@
 # Funktionsabgleich
 
-Abgleich mit dem Funktionsumfang von Rundown Studio (Stand 02.11.2026), erhoben aus der öffentlichen Dokumentation, der Oberfläche eines echten Kontos (Menüs, Ausgabe-Dialog, Cue-Ansicht) und den Zeiten des öffentlichen Demo-Ablaufs. Taktgeber übernimmt Funktionen, keine Texte, Grafiken oder Code.
+Abgleich mit dem Funktionsumfang von Rundown Studio (Stand 02.11.2026), erhoben aus der öffentlichen Dokumentation, der normalen Bedienung eines echten Kontos (Menüs, Ausgabe-Dialog, Cue- und Spaltenmenüs eines eigens angelegten Test-Ablaufs) und den Zeiten des öffentlichen Demo-Ablaufs. Taktgeber übernimmt Funktionen, keine Texte, Grafiken oder Code.
 
 Legende: ✅ umgesetzt · ◐ teilweise / anders gelöst · — nicht umgesetzt
 
@@ -31,6 +31,11 @@ Legende: ✅ umgesetzt · ◐ teilweise / anders gelöst · — nicht umgesetzt
 | Zell-Verlauf mit Wiederherstellen | ✅ (ohne Personenangabe, da keine Benutzerkonten) | e2e |
 | Mehrfachauswahl: alle, duplizieren, gruppieren, Gruppierung aufheben, verschieben, Farbe, löschen | ✅ | e2e |
 | Rückgängig | ✅ | e2e |
+| Mehrere Cues auf einmal anlegen | ✅ (1–50) | e2e |
+| Cue ↔ Überschrift umwandeln | ✅ (Original des Cues landet im Papierkorb) | e2e |
+| Zu Cue springen | ✅ (Suche nach Nummer oder Titel, Taste G bzw. Strg/Cmd+K) | e2e |
+| Spaltenlayout zurücksetzen | ✅ | e2e |
+| Eigene Farbpalette je Ablauf | ✅ | e2e |
 
 ## Einstellungen und Organisation
 
@@ -90,6 +95,6 @@ Legende: ✅ umgesetzt · ◐ teilweise / anders gelöst · — nicht umgesetzt
 
 - `npm test`: 42 Prüfungen der Timing-Logik, darunter der Referenzablauf mit 22 Cues und 8 Gruppen
 - `npm run test:api`: 33 Prüfungen von Server, Sync, Anmeldung, Gast-Links, Codes, Steuer-API und Auto-Start
-- `python3 scripts/e2e.py`: 52 Prüfungen der Oberfläche in Chrome (Desktop, Gast, Handy)
+- `python3 scripts/e2e.py`: 58 Prüfungen der Oberfläche in Chrome (Desktop, Gast, Handy)
 
-Ein Live-Test direkt in Rundown Studio war nicht möglich: Der Tarif des Kontos erlaubt keine weiteren Abläufe, und im öffentlichen Demo-Ablauf sind die Show-Steuerungen gesperrt. Die vorhandenen Produktions-Abläufe wurden nur angesehen, nicht verändert.
+Die vorhandenen Produktions-Abläufe wurden nur angesehen, nicht verändert. Für den Abgleich der Menüs wurde im Event „MFY MUC 2026“ der Ablauf „Taktgeber Funktionstest“ angelegt.

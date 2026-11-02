@@ -63,6 +63,17 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
   const tl = useMemo(() => computeTimeline(r, live, now), [r, live, now]);
   const textCtx = useMemo(() => ({ variables: r.variables, mentions: r.mentions }), [r.variables, r.mentions]);
 
+  // Eigene Farbpalette des Ablaufs auf alle Ansichten (auch Popover) anwenden
+  useEffect(() => {
+    const root = document.documentElement;
+    const ids = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'violet', 'grey'] as const;
+    for (const id of ids) {
+      const v = r.palette[id];
+      if (v) root.style.setProperty(`--tint-${id}`, v);
+      else root.style.removeProperty(`--tint-${id}`);
+    }
+  }, [r.palette]);
+
   // Automatisches Weiterschalten (Auto-Start)
   useEffect(() => {
     if (readonly) return;
@@ -88,6 +99,11 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
         e.preventDefault();
         if (s.ui.locked) return;
         e.shiftKey ? store.redo(id) : store.undo(id);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (view === 'ablauf') window.dispatchEvent(new Event('tg-jump'));
         return;
       }
       if (mod && e.key.toLowerCase() === 'y') {
@@ -129,6 +145,13 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
         case 'l':
         case 'L':
           if (!s.share || s.share.mode === 'edit') store.setUi({ locked: !s.ui.locked });
+          break;
+        case 'g':
+        case 'G':
+          if (view === 'ablauf') {
+            e.preventDefault();
+            window.dispatchEvent(new Event('tg-jump'));
+          }
           break;
         case '?':
           setDialog('help');

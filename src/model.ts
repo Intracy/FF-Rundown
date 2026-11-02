@@ -72,6 +72,7 @@ export function normalizeRundown(r: Partial<Rundown> & { id: string }): Rundown 
     warnAt: 60_000,
     columns: [],
     prompterSource: 'script',
+    palette: {},
     variables: {},
     mentions: {},
     eventId: null,

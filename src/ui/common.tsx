@@ -114,6 +114,12 @@ const paths: Record<string, React.ReactNode> = {
   ),
   share: <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13" />,
   home: <path d="M3 11l9-7 9 7M5 10v10h14V10" />,
+  search: (
+    <g>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-4-4" />
+    </g>
+  ),
   folder: <path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />,
   variable: <path d="M8 4c-2 0-3 1-3 3v2c0 1.5-1 3-2 3 1 0 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2 3-1 0-2 1.5-2 3v2c0 2-1 3-3 3" />,
   at: (

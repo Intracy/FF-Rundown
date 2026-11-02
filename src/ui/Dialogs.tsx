@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ClockMode, Rundown, RundownStatus, STATUS_LABEL, isCue } from '../types';
+import { ClockMode, Rundown, RundownStatus, STATUS_LABEL, TINTS, Tint, isCue } from '../types';
 import { Timeline } from '../timing';
 import { fmtClock, fmtDate, msOfDay, timeZones, uid } from '../time';
 import { AppState, now as clockNow, store } from '../store';
@@ -222,6 +222,34 @@ export function SettingsDialog({ r, app, tl, onClose }: { r: Rundown; app: AppSt
         </section>
 
         <section className="set-sec">
+          <h3>Farben des Ablaufs</h3>
+          <p className="hint small">Eigene Farbtöne für Zeilen, Überschriften und Auswahl-Chips. Gilt für alle, die diesen Ablauf öffnen.</p>
+          <div className="palette-grid">
+            {TINTS.filter((t) => t.id).map((t) => {
+              const id = t.id as Exclude<Tint, ''>;
+              const custom = r.palette[id];
+              return (
+                <label key={id} className="palette-item">
+                  <input
+                    type="color"
+                    aria-label={`Farbe ${t.label}`}
+                    value={custom ?? defaultTintHex(id)}
+                    onChange={(e) => edit(r.id, (x) => ({ ...x, palette: { ...x.palette, [id]: e.target.value } }), `pal:${id}`)}
+                  />
+                  <span>{t.label}</span>
+                  {custom && <span className="hint small">eigene</span>}
+                </label>
+              );
+            })}
+          </div>
+          {Object.keys(r.palette).length > 0 && (
+            <button className="btn small" onClick={() => edit(r.id, (x) => ({ ...x, palette: {} }))}>
+              Standardfarben wiederherstellen
+            </button>
+          )}
+        </section>
+
+        <section className="set-sec">
           <h3>Organisation</h3>
           <div className="set-field">
             <span className="eyebrow">Status</span>
@@ -252,6 +280,16 @@ export function SettingsDialog({ r, app, tl, onClose }: { r: Rundown; app: AppSt
       </div>
     </Modal>
   );
+}
+
+/** Aktueller Standardwert einer Zeilenfarbe (aus dem Stylesheet, abhängig vom Farbschema) */
+function defaultTintHex(id: string): string {
+  const v = getComputedStyle(document.body).getPropertyValue(`--tint-${id}`).trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v;
+  const c = document.createElement('canvas').getContext('2d');
+  if (!c) return '#888888';
+  c.fillStyle = v || '#888888';
+  return c.fillStyle.startsWith('#') ? c.fillStyle : '#888888';
 }
 
 /* ---------- Text-Variablen ---------- */
@@ -754,6 +792,7 @@ export function Help({ onClose }: { onClose: () => void }) {
     ['Strg/Cmd + Z', 'Rückgängig (Umschalt für Wiederholen)'],
     ['Doppelklick', 'Zelle bearbeiten, Strg/Cmd + Enter speichert, Esc verwirft'],
     ['$ · @', 'In Zellen: Variable · Erwähnung einfügen'],
+    ['G · Strg/Cmd + K', 'Zu Cue springen (Nummer oder Titel)'],
     ['Klick auf die Nummer', 'Cue als Nächstes vormerken'],
     ['Prompter: Leertaste', 'Scrollen starten / stoppen'],
     ['Prompter: ← →', 'Langsamer / schneller (mit Umschalt doppelt)'],
