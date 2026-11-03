@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Column, Cue, Heading, Item, LiveState, Rundown, SelectOption, SubTimer, TINTS, isCue } from '../types';
 import { CueTime, GroupTime, Timeline } from '../timing';
 import { fmtClock, fmtCountdown, fmtDur, fmtTimeOfDay, msOfDay, uid } from '../time';
@@ -6,7 +6,7 @@ import { now as clockNow, store } from '../store';
 import * as L from '../live';
 import { newSubTimer } from '../model';
 import { newColumn, newCue, newHeading } from '../sample';
-import { ClockInput, DurationInput, Icon, Popover, Swatches, SuggestTextarea, TextCell, Toggle, usePopover } from './common';
+import { ClockInput, DurationInput, Icon, Popover, Swatches, SuggestTextarea, TextCell, Toggle, toast, usePopover } from './common';
 
 /* ---------- Mutationshelfer ---------- */
 const edit = (rid: string, fn: (r: Rundown) => Rundown, key?: string) => store.updateRundown(rid, fn, key);
@@ -26,6 +26,7 @@ function insertAfter(rid: string, afterId: string | null, items: Item[]) {
 
 /** Löschen landet im Papierkorb (30 Tage wiederherstellbar) */
 export function removeItems(rid: string, ids: Set<string>) {
+  const n = ids.size;
   edit(rid, (r) => {
     const at = Date.now();
     const trash = [...r.trash];
@@ -34,6 +35,7 @@ export function removeItems(rid: string, ids: Set<string>) {
     });
     return { ...r, items: r.items.filter((x) => !ids.has(x.id)), trash };
   });
+  toast(n === 1 ? 'In den Papierkorb gelegt.' : `${n} Einträge in den Papierkorb gelegt.`, { label: 'Rückgängig', run: () => store.undo(rid) });
 }
 
 function deleteColumn(rid: string, colId: string) {
@@ -57,6 +59,7 @@ function deleteColumn(rid: string, colId: string) {
       trash: [...r.trash, { id: uid(), at: Date.now(), index, column: col, cells }],
     };
   });
+  toast('Spalte in den Papierkorb gelegt.', { label: 'Rückgängig', run: () => store.undo(rid) });
 }
 
 /** Zellinhalt ändern und den vorherigen Wert im Zell-Verlauf festhalten */
@@ -118,7 +121,8 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
   const hidden = app.ui.hiddenCols[r.id] ?? [];
   const showPrivate = !readonly && !!app.ui.showPrivate[r.id];
   const privateNotes = app.ui.privateNotes[r.id] ?? {};
-  const visibleCols = r.columns.filter((c) => !hidden.includes(c.id));
+  const hiddenKey = hidden.join(',');
+  const visibleCols = useMemo(() => r.columns.filter((c) => !hidden.includes(c.id)), [r.columns, hiddenKey]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; pos: 'before' | 'after' } | null>(null);
@@ -161,78 +165,113 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
     el?.scrollIntoView({ block: app.ui.followPos === 'top' ? 'start' : 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }, [live.currentId, follow]);
 
-  const select = (id: string, e: React.MouseEvent) => {
+  // Aktueller Stand für stabile Handler: Zeilen sind memoisiert und sollen nicht bei jedem Takt neu rendern
+  const latest = useRef({ r, selected, anchorId, drop });
+  latest.current = { r, selected, anchorId, drop };
+
+  const select = useCallback((id: string, e: React.MouseEvent | React.KeyboardEvent) => {
+    const { r: rr, anchorId: anchor } = latest.current;
     setSelected((s) => {
       const next = new Set(s);
-      if (e.shiftKey && anchorId) {
-        const ids = r.items.map((i) => i.id);
-        const [a, b] = [ids.indexOf(anchorId), ids.indexOf(id)].sort((x, y) => x - y);
+      if (e.shiftKey && anchor) {
+        const ids = rr.items.map((i) => i.id);
+        const [a, b] = [ids.indexOf(anchor), ids.indexOf(id)].sort((x, y) => x - y);
         ids.slice(a, b + 1).forEach((x) => next.add(x));
       } else if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
     if (!e.shiftKey) setAnchorId(id);
+  }, []);
+
+  const idsFor = (id: string) => {
+    const { r: rr, selected: sel } = latest.current;
+    return sel.has(id) ? rr.items.filter((i) => sel.has(i.id)).map((i) => i.id) : [id];
   };
 
-  const dnd = locked
-    ? null
-    : {
-        /** Umsortieren per Finger: Zeile unter dem Finger bestimmt das Ziel */
-        touchStart: (id: string, e: React.PointerEvent) => {
-          const ids = selected.has(id) ? r.items.filter((i) => selected.has(i.id)).map((i) => i.id) : [id];
-          const pid = e.pointerId;
-          let target: { id: string; pos: 'before' | 'after' } | null = null;
-          let moved = false;
-          const mv = (ev: PointerEvent) => {
-            if (ev.pointerId !== pid) return;
-            ev.preventDefault();
-            moved = true;
-            const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-id]');
-            if (!under?.dataset.id) return;
-            const rect = under.getBoundingClientRect();
-            target = { id: under.dataset.id, pos: ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after' };
-            setDrop(target);
-            if (ev.clientY < 120) window.scrollBy(0, -12);
-            else if (ev.clientY > window.innerHeight - 140) window.scrollBy(0, 12);
-          };
-          const up = (ev: PointerEvent) => {
-            if (ev.pointerId !== pid) return;
-            window.removeEventListener('pointermove', mv);
-            window.removeEventListener('pointerup', up);
-            window.removeEventListener('pointercancel', up);
-            if (moved && target) moveItems(r.id, ids, target.id, target.pos);
-            setDrop(null);
-          };
-          window.addEventListener('pointermove', mv, { passive: false });
-          window.addEventListener('pointerup', up);
-          window.addEventListener('pointercancel', up);
-        },
-        start: (id: string, e: React.DragEvent) => {
-          dragIds.current = selected.has(id) ? r.items.filter((i) => selected.has(i.id)).map((i) => i.id) : [id];
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', id);
-          const row = (e.currentTarget as HTMLElement).closest('.row');
-          if (row) e.dataTransfer.setDragImage(row, 20, 20);
-        },
-        over: (id: string, e: React.DragEvent) => {
-          if (!dragIds.current.length) return;
-          e.preventDefault();
-          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          const pos = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-          setDrop((d) => (d?.id === id && d.pos === pos ? d : { id, pos }));
-        },
-        drop: (e: React.DragEvent) => {
-          e.preventDefault();
-          if (drop && dragIds.current.length) moveItems(r.id, dragIds.current, drop.id, drop.pos);
-          dragIds.current = [];
+  const dndHandlers = useMemo(
+    () => ({
+      /** Umsortieren per Finger: Zeile unter dem Finger bestimmt das Ziel */
+      touchStart: (id: string, e: React.PointerEvent) => {
+        const ids = idsFor(id);
+        const pid = e.pointerId;
+        let target: { id: string; pos: 'before' | 'after' } | null = null;
+        let moved = false;
+        document.body.classList.add('dragging');
+        const mv = (ev: PointerEvent) => {
+          if (ev.pointerId !== pid) return;
+          ev.preventDefault();
+          moved = true;
+          const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-id]');
+          if (!under?.dataset.id) return;
+          const rect = under.getBoundingClientRect();
+          target = { id: under.dataset.id, pos: ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after' };
+          setDrop(target);
+          if (ev.clientY < 120) window.scrollBy(0, -12);
+          else if (ev.clientY > window.innerHeight - 140) window.scrollBy(0, 12);
+        };
+        const up = (ev: PointerEvent) => {
+          if (ev.pointerId !== pid) return;
+          window.removeEventListener('pointermove', mv);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          document.body.classList.remove('dragging');
+          if (moved && target) moveItems(latest.current.r.id, ids, target.id, target.pos);
           setDrop(null);
-        },
-        end: () => {
-          dragIds.current = [];
-          setDrop(null);
-        },
-      };
+        };
+        window.addEventListener('pointermove', mv, { passive: false });
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+      },
+      start: (id: string, e: React.DragEvent) => {
+        dragIds.current = idsFor(id);
+        document.body.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', id);
+        const row = (e.currentTarget as HTMLElement).closest('.row');
+        if (row) e.dataTransfer.setDragImage(row, 20, 20);
+      },
+      over: (id: string, e: React.DragEvent) => {
+        if (!dragIds.current.length) return;
+        e.preventDefault();
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const pos = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        setDrop((d) => (d?.id === id && d.pos === pos ? d : { id, pos }));
+      },
+      drop: (e: React.DragEvent) => {
+        e.preventDefault();
+        const d = latest.current.drop;
+        if (d && dragIds.current.length) moveItems(latest.current.r.id, dragIds.current, d.id, d.pos);
+        dragIds.current = [];
+        document.body.classList.remove('dragging');
+        setDrop(null);
+      },
+      end: () => {
+        dragIds.current = [];
+        document.body.classList.remove('dragging');
+        setDrop(null);
+      },
+    }),
+    [],
+  );
+  const dnd = locked ? null : dndHandlers;
+
+  // Tastatur-Alternative zum Ziehen: Alt + ↑/↓ verschiebt die Auswahl
+  useEffect(() => {
+    if (locked) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+      const { r: rr, selected: sel } = latest.current;
+      if (!sel.size || (e.target as HTMLElement).closest('input, textarea, select')) return;
+      e.preventDefault();
+      const items = rr.items;
+      const idx = items.map((it, i) => (sel.has(it.id) ? i : -1)).filter((i) => i >= 0);
+      if (e.key === 'ArrowUp' && idx[0] > 0) moveItems(rr.id, idx.map((i) => items[i].id), items[idx[0] - 1].id, 'before');
+      if (e.key === 'ArrowDown' && idx[idx.length - 1] < items.length - 1) moveItems(rr.id, idx.map((i) => items[i].id), items[idx[idx.length - 1] + 1].id, 'after');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [locked]);
 
   const setHidden = (ids: string[]) => store.setUi({ hiddenCols: { ...app.ui.hiddenCols, [r.id]: ids } });
   const firstPlayableId = useMemo(() => L.playable(r)[0]?.id, [r]);
@@ -336,7 +375,7 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
               <button className="btn ghost" onClick={() => insertAfter(r.id, null, Array.from({ length: addCount }, () => newCue()))}>
                 <Icon name="plus" /> {addCount === 1 ? 'Cue' : `${addCount} Cues`}
               </button>
-              <input
+              <input autoComplete="off"
                 id="add-count"
                 className="text-input num add-count"
                 type="number"
@@ -416,11 +455,11 @@ function JumpBox({ r, tl, onPick, onClose }: { r: Rundown; tl: Timeline; onPick:
   return (
     <div className="modal-back" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="jump" role="dialog" aria-label="Zu Cue springen">
-        <input
+        <input autoComplete="off"
           id="jump-input"
           className="text-input"
           autoFocus
-          placeholder="Nummer oder Titel"
+          placeholder="Nummer oder Titel, z. B. 12 oder Begrüßung…"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
@@ -605,8 +644,8 @@ const CueRow = memo(function CueRow({
 
         <div className="c c-title">
           <div className="title-stack">
-            <input className="title-input" value={cue.title} placeholder="Titel" readOnly={locked} aria-label="Titel" onChange={(e) => set({ title: e.target.value }, `title:${cue.id}`)} />
-            <input
+            <input autoComplete="off" className="title-input" value={cue.title} placeholder="Titel…" readOnly={locked} aria-label="Titel" onChange={(e) => set({ title: e.target.value }, `title:${cue.id}`)} />
+            <input autoComplete="off"
               className="subtitle-input"
               value={cue.subtitle}
               placeholder={locked ? '' : 'Untertitel / Person'}
@@ -724,7 +763,7 @@ function SubTimerChip({ r, cue, t, live, now, started, locked, readonly }: { r: 
           <div className="menu-body">
             <div className="field-row">
               <label htmlFor={`stn-${t.id}`}>Name</label>
-              <input id={`stn-${t.id}`} className="text-input" maxLength={100} value={t.name} onChange={(e) => patch({ name: e.target.value })} />
+              <input autoComplete="off" id={`stn-${t.id}`} className="text-input" maxLength={100} value={t.name} onChange={(e) => patch({ name: e.target.value })} />
             </div>
             <div className="seg" role="radiogroup" aria-label="Richtung">
               <button role="radio" aria-checked={t.mode === 'down'} className={t.mode === 'down' ? 'on' : ''} onClick={() => patch({ mode: 'down' })}>
@@ -949,7 +988,7 @@ const HeadingRow = memo(function HeadingRow({
       <Grip id={h.id} selected={selected} onSelect={onSelect} dnd={dnd} label={h.title || 'Überschrift'} readonly={readonly} />
       <div className="heading-body">
         {h.end && <span className="end-tag">Block-Ende</span>}
-        <input className="heading-input" value={h.title} readOnly={locked} aria-label={h.end ? 'Bezeichnung des Block-Endes' : 'Überschrift'} onChange={(e) => patchItem(r.id, h.id, { title: e.target.value }, `h:${h.id}`)} />
+        <input autoComplete="off" className="heading-input" value={h.title} readOnly={locked} aria-label={h.end ? 'Bezeichnung des Block-Endes' : 'Überschrift'} onChange={(e) => patchItem(r.id, h.id, { title: e.target.value }, `h:${h.id}`)} />
         {g && g.count > 0 && (
           <span className="heading-meta">
             <span>
@@ -1177,7 +1216,7 @@ function ColumnHeader({
               <>
                 <div className="field-row">
                   <label htmlFor={`colname-${col.id}`}>Name</label>
-                  <input id={`colname-${col.id}`} className="text-input" value={col.name} onChange={(e) => setCol({ name: e.target.value }, `col:${col.id}`)} />
+                  <input autoComplete="off" id={`colname-${col.id}`} className="text-input" value={col.name} onChange={(e) => setCol({ name: e.target.value }, `col:${col.id}`)} />
                 </div>
                 <div className="menu-sec">
                   <span className="eyebrow">Typ</span>
@@ -1201,7 +1240,7 @@ function ColumnHeader({
                     <div className="opt-list">
                       {col.options.map((o) => (
                         <div className="opt-row" key={o.id}>
-                          <input className="text-input" aria-label="Optionsname" value={o.label} onChange={(e) => setOpt(o.id, { label: e.target.value }, `opt:${o.id}`)} />
+                          <input autoComplete="off" className="text-input" aria-label="Optionsname" value={o.label} onChange={(e) => setOpt(o.id, { label: e.target.value }, `opt:${o.id}`)} />
                           <select className={`chip-select tint-${o.color || 'none'}`} aria-label="Optionsfarbe" value={o.color} onChange={(e) => setOpt(o.id, { color: e.target.value as SelectOption['color'] })}>
                             {TINTS.map((t) => (
                               <option key={t.id} value={t.id}>

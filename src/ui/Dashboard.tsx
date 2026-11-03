@@ -59,7 +59,7 @@ export function Dashboard({ app, open }: { app: AppState; open: (id: string) => 
         <div className="dash-inner">
           <Brand />
           <div className="dash-search">
-            <input className="text-input" type="search" placeholder="Event oder Ablauf suchen" aria-label="Suchen" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input autoComplete="off" className="text-input" type="search" placeholder="Event oder Ablauf suchen…" aria-label="Suchen" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <div className="menu-actions">
             <button className="btn" onClick={() => store.saveEvent(newEvent())}>
@@ -94,7 +94,7 @@ export function Dashboard({ app, open }: { app: AppState; open: (id: string) => 
                   const n = all.filter((r) => r.eventId === e.id && !r.isTemplate).length;
                   return (
                     <button key={e.id} className="event-card" onClick={() => setEventId(e.id)}>
-                      {e.logo ? <img src={e.logo} alt="" className="event-logo" /> : <Icon name="folder" size={18} />}
+                      {e.logo ? <img src={e.logo} alt="" className="event-logo" width={120} height={24} /> : <Icon name="folder" size={18} />}
                       <span className="event-name">{e.name}</span>
                       <span className="hint small">
                         {n} {n === 1 ? 'Ablauf' : 'Abläufe'}
@@ -199,7 +199,7 @@ function EventHeader({ app, id, back }: { app: AppState; id: string; back: () =>
   const [confirm, setConfirm] = useState(false);
   return (
     <span className="event-head">
-      <input className="title-field small" aria-label="Name des Events" value={ev.name} onChange={(e) => store.saveEvent({ ...ev, name: e.target.value })} />
+      <input autoComplete="off" className="title-field small" aria-label="Name des Events" value={ev.name} onChange={(e) => store.saveEvent({ ...ev, name: e.target.value })} />
       <button className="icon-btn" onClick={menu.open} aria-label="Event-Optionen">
         <Icon name="dots" />
       </button>

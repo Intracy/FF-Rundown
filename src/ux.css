@@ -1,0 +1,332 @@
+/* =================================================================
+   Bedienung im Einsatz – nach den Web Interface Guidelines (Vercel):
+   Fokus, Touch, Überscrollen, Rückmeldung beim Drücken, lange Inhalte,
+   große Abläufe, Hinweise mit Rückgängig, Barrierefreiheit.
+   Liegt über dem Design und ändert dessen Farben nicht.
+   ================================================================= */
+
+/* ---------- Touch ---------- */
+button,
+a,
+input,
+select,
+textarea,
+label,
+[role='button'] {
+  touch-action: manipulation;
+}
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+@media (pointer: fine) {
+  html {
+    overscroll-behavior: none;
+  }
+}
+/* Menüs, Dialoge und Panels scrollen nicht in die Seite durch */
+.pop,
+.modal,
+.modal-back,
+.out-config,
+.jump-list,
+.rd-list,
+.hist-list,
+.p-cue-list,
+.suggest,
+.sheet {
+  overscroll-behavior: contain;
+}
+
+/* ---------- Fokus: sichtbar bei Tastatur, nicht bei Klick ---------- */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+button:focus-visible,
+a:focus-visible,
+[role='button']:focus-visible,
+.grip:focus-visible,
+.num-btn:focus-visible,
+.chip-select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.seg:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
+}
+/* Klebender Kopf und Fußleiste verdecken den fokussierten Cue nicht */
+.sheet {
+  scroll-padding-top: 52px;
+  scroll-padding-bottom: 24px;
+}
+.view-uebersicht,
+.dash {
+  scroll-padding-top: 72px;
+}
+
+/* ---------- Rückmeldung beim Drücken ---------- */
+.btn,
+.ctl,
+.chip-btn,
+.icon-btn,
+.num-btn,
+.seg button,
+.menu-list > button,
+.toast-action {
+  transition-property: background-color, color, box-shadow, transform, opacity;
+  transition-duration: 0.12s;
+  transition-timing-function: ease-out;
+}
+.btn:active:not(:disabled),
+.ctl:active:not(:disabled),
+.chip-btn:active:not(:disabled),
+.icon-btn:active:not(:disabled),
+.num-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.ctl.go:active:not(:disabled) {
+  transform: scale(0.98);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+/* Hover nur dort, wo es Hover gibt – auf Touch bleiben Zustände nicht „hängen“ */
+@media (hover: none) {
+  .btn:hover:not(:disabled),
+  .chip-btn:hover:not(:disabled),
+  .icon-btn:hover:not(:disabled),
+  .ctl:hover:not(:disabled) {
+    filter: none;
+  }
+}
+
+/* ---------- Ziehen: keine Textauswahl, klare Zielmarke ---------- */
+body.dragging,
+body.dragging * {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grabbing !important;
+}
+.grip {
+  cursor: grab;
+}
+.grip:active {
+  cursor: grabbing;
+}
+
+/* ---------- Lange Inhalte ---------- */
+.title-input,
+.subtitle-input,
+.heading-input,
+.now-title,
+.rd-name,
+.event-name,
+.hard-title,
+.out-next-title,
+.jump-list span {
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+.cell-view,
+.hist-val,
+.mention-card,
+.toast span,
+.share-link {
+  overflow-wrap: anywhere;
+}
+.modal-head h2,
+.login-card h1,
+.dash-h,
+.out-title,
+.set-sec h3 {
+  text-wrap: balance;
+}
+.hint,
+.empty-note,
+.toggle small {
+  text-wrap: pretty;
+}
+
+/* ---------- Ziffern ---------- */
+.num,
+.num-input,
+.time,
+.sub,
+.remain,
+.big-timer,
+.sum-item,
+.heading-meta,
+.code-digits,
+.out-timer,
+.p-timer {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Große Abläufe: Zeilen außerhalb des Bildes nicht zeichnen ---------- */
+@supports (content-visibility: auto) {
+  .row.cue:not(.st-current):not(.st-next):not(.sel),
+  .row.heading {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 72px;
+  }
+}
+
+/* ---------- Native Auswahllisten (Windows-Dunkelmodus) ---------- */
+select {
+  background-color: var(--surface);
+  color: var(--fg);
+}
+select option {
+  background-color: var(--surface);
+  color: var(--fg);
+}
+
+/* ---------- Bilder ---------- */
+img {
+  height: auto;
+}
+.event-logo,
+.top-logo,
+.out-logo,
+.logo-preview {
+  width: auto;
+}
+
+/* ---------- Zum Inhalt springen ---------- */
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: max(16px, env(safe-area-inset-left, 0px));
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+.skip-link:focus-visible {
+  transform: none;
+}
+.main:focus {
+  outline: none;
+}
+
+/* ---------- Hinweise mit Rückgängig ---------- */
+.toast-region {
+  position: fixed;
+  z-index: 90;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 32px));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  padding: 8px 8px 8px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  animation: toast-in 0.18s ease-out;
+}
+.toast span {
+  flex: 1;
+  min-width: 0;
+}
+.toast-action {
+  flex: none;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+.toast-action:hover {
+  background: color-mix(in oklab, var(--accent) 26%, transparent);
+}
+.toast-close {
+  flex: none;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* ---------- QR-Vollbild als Schaltfläche ---------- */
+button.qr-full {
+  border: 0;
+  font: inherit;
+  cursor: zoom-out;
+}
+
+/* ---------- Touch: ausreichend große Ziele ---------- */
+@media (pointer: coarse) {
+  .btn,
+  .ctl,
+  .icon-btn,
+  .chip-btn,
+  .num-btn,
+  .menu-list > button,
+  .menu-list > a,
+  .rd-list button,
+  .jump-list button,
+  .seg button,
+  .toast-action {
+    min-height: 44px;
+  }
+  .icon-btn,
+  .num-btn {
+    min-width: 44px;
+  }
+  .row-tools,
+  .add-sub,
+  .cell-hist {
+    opacity: 1;
+  }
+  /* 16 px verhindert das automatische Hineinzoomen in Eingabefelder auf iOS */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* ---------- Bewegung reduzieren ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .btn:active,
+  .ctl:active,
+  .chip-btn:active,
+  .icon-btn:active,
+  .num-btn:active {
+    transform: none !important;
+  }
+  .toast {
+    animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

@@ -118,7 +118,7 @@ export function SettingsDialog({ r, app, tl, onClose }: { r: Rundown; app: AppSt
           <div className="set-grid">
             <label className="set-field">
               <span className="eyebrow">Datum</span>
-              <input type="date" className="text-input" value={r.date} onChange={(e) => e.target.value && edit(r.id, (x) => ({ ...x, date: e.target.value }))} />
+              <input autoComplete="off" type="date" className="text-input" value={r.date} onChange={(e) => e.target.value && edit(r.id, (x) => ({ ...x, date: e.target.value }))} />
             </label>
             <label className="set-field wide">
               <span className="eyebrow">Zeitzone</span>
@@ -172,15 +172,15 @@ export function SettingsDialog({ r, app, tl, onClose }: { r: Rundown; app: AppSt
           <div className="set-grid">
             <label className="set-field">
               <span className="eyebrow">Nummer: Präfix</span>
-              <input className="text-input" value={s.numPrefix} maxLength={12} placeholder="z. B. A" onChange={(e) => set({ numPrefix: e.target.value }, `np:${r.id}`)} />
+              <input autoComplete="off" className="text-input" value={s.numPrefix} maxLength={12} placeholder="z. B. A…" onChange={(e) => set({ numPrefix: e.target.value }, `np:${r.id}`)} />
             </label>
             <label className="set-field">
               <span className="eyebrow">Beginnt bei</span>
-              <input className="text-input num" type="number" min={0} value={s.numStart} onChange={(e) => set({ numStart: Math.max(0, +e.target.value || 0) })} />
+              <input autoComplete="off" className="text-input num" type="number" min={0} value={s.numStart} onChange={(e) => set({ numStart: Math.max(0, +e.target.value || 0) })} />
             </label>
             <label className="set-field">
               <span className="eyebrow">Stellen</span>
-              <input className="text-input num" type="number" min={1} max={6} value={s.numDigits} onChange={(e) => set({ numDigits: Math.min(6, Math.max(1, +e.target.value || 1)) })} />
+              <input autoComplete="off" className="text-input num" type="number" min={1} max={6} value={s.numDigits} onChange={(e) => set({ numDigits: Math.min(6, Math.max(1, +e.target.value || 1)) })} />
             </label>
             <div className="set-field">
               <span className="eyebrow">Vorschau</span>
@@ -192,7 +192,7 @@ export function SettingsDialog({ r, app, tl, onClose }: { r: Rundown; app: AppSt
           <div className="set-field">
             <span className="eyebrow">Logo für Ablauf und Timer</span>
             <div className="logo-row">
-              {s.logo ? <img src={s.logo} alt="Logo" className="logo-preview" /> : <span className="hint">Kein Logo</span>}
+              {s.logo ? <img src={s.logo} alt="Aktuelles Logo" className="logo-preview" width={160} height={40} /> : <span className="hint">Kein Logo</span>}
               <label className="btn small" htmlFor="logo-file">
                 Bild wählen
               </label>
@@ -321,7 +321,7 @@ export function VariablesDialog({ r, onClose }: { r: Rundown; onClose: () => voi
           {Object.entries(r.variables).map(([k, v]) => (
             <div className="kv-row" key={k}>
               <code className="num">${k}</code>
-              <input className="text-input" aria-label={`Wert von ${k}`} value={v} onChange={(e) => edit(r.id, (x) => ({ ...x, variables: { ...x.variables, [k]: e.target.value } }), `var:${k}`)} />
+              <input autoComplete="off" className="text-input" aria-label={`Wert von ${k}`} value={v} onChange={(e) => edit(r.id, (x) => ({ ...x, variables: { ...x.variables, [k]: e.target.value } }), `var:${k}`)} />
               <span className="hint small">{used(k)}×</span>
               <button
                 className="icon-btn"
@@ -350,8 +350,8 @@ export function VariablesDialog({ r, onClose }: { r: Rundown; onClose: () => voi
             setVal('');
           }}
         >
-          <input id="var-key" className="text-input num" placeholder="schluessel-name" value={key} onChange={(e) => setKey(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} aria-label="Schlüssel" />
-          <input id="var-val" className="text-input" placeholder="Wert" value={val} onChange={(e) => setVal(e.target.value)} aria-label="Wert" />
+          <input spellCheck={false} autoComplete="off" id="var-key" className="text-input num" placeholder="z. B. spendenstand…" value={key} onChange={(e) => setKey(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} aria-label="Schlüssel" />
+          <input autoComplete="off" id="var-val" className="text-input" placeholder="Wert, z. B. 12.480 €…" value={val} onChange={(e) => setVal(e.target.value)} aria-label="Wert" />
           <button className="btn primary" disabled={!valid}>
             Anlegen
           </button>
@@ -378,7 +378,7 @@ export function MentionsDialog({ r, onClose }: { r: Rundown; onClose: () => void
           {Object.values(r.mentions).map((m) => (
             <div className="mention-edit" key={m.key}>
               <div className="field-row">
-                <input className="text-input" aria-label="Name" value={m.name} onChange={(e) => setM(m.key, { name: e.target.value }, `mn:${m.key}`)} />
+                <input autoComplete="off" className="text-input" aria-label="Name" value={m.name} onChange={(e) => setM(m.key, { name: e.target.value }, `mn:${m.key}`)} />
                 <code className="num">@{m.key}</code>
                 <button
                   className="icon-btn"
@@ -394,7 +394,7 @@ export function MentionsDialog({ r, onClose }: { r: Rundown; onClose: () => void
                   <Icon name="trash" size={14} />
                 </button>
               </div>
-              <textarea className="text-input" rows={2} aria-label="Beschreibung" placeholder="Beschreibung, Kontakt, Position …" value={m.description} onChange={(e) => setM(m.key, { description: e.target.value }, `md:${m.key}`)} />
+              <textarea autoComplete="off" className="text-input" rows={2} aria-label="Beschreibung" placeholder="Beschreibung, Kontakt, Position …" value={m.description} onChange={(e) => setM(m.key, { description: e.target.value }, `md:${m.key}`)} />
             </div>
           ))}
           {!Object.keys(r.mentions).length && <p className="hint">Noch keine Erwähnungen.</p>}
@@ -408,7 +408,7 @@ export function MentionsDialog({ r, onClose }: { r: Rundown; onClose: () => void
             setName('');
           }}
         >
-          <input id="mention-name" className="text-input" placeholder="Name, z. B. Kamera 2" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name der Erwähnung" />
+          <input autoComplete="off" id="mention-name" className="text-input" placeholder="Name, z. B. Kamera 2…" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name der Erwähnung" />
           <button className="btn primary" disabled={!valid}>
             Anlegen
           </button>
@@ -653,7 +653,7 @@ export function CodeEntry() {
       >
         <h1>Zugangscode</h1>
         <p className="hint">Den sechsstelligen Code bekommst du von der Regie.</p>
-        <input
+        <input spellCheck={false}
           id="access-code"
           className="text-input num code-input"
           inputMode="numeric"
@@ -718,7 +718,7 @@ export function ImportExport({ r, tl, onClose }: { r: Rundown; tl: Timeline; onC
               ? 'Semikolon-getrennt, öffnet direkt in Excel, Numbers oder Google Sheets. Mit geplanten Start- und Endzeiten, Variablen sind eingesetzt.'
               : 'Vollständige Sicherung inklusive Spalten, Farben, Skripten, Unter-Timern, Variablen und Einstellungen.'}
           </p>
-          <textarea ref={out} className="export-box" readOnly value={content} aria-label="Exportinhalt" />
+          <textarea autoComplete="off" ref={out} className="export-box" readOnly value={content} aria-label="Exportinhalt" />
           <div className="menu-actions">
             <button
               className="btn primary"
@@ -771,7 +771,7 @@ export function ImportExport({ r, tl, onClose }: { r: Rundown; tl: Timeline; onC
           <label className="eyebrow" htmlFor="import-paste">
             Oder Inhalt einfügen
           </label>
-          <textarea id="import-paste" className="export-box small" value={paste} onChange={(e) => setPaste(e.target.value)} placeholder={'Titel;Dauer;Kamera\nBegrüßung;3:00;Totale'} />
+          <textarea autoComplete="off" id="import-paste" className="export-box small" value={paste} onChange={(e) => setPaste(e.target.value)} placeholder={'Titel;Dauer;Kamera\nBegrüßung;3:00;Totale'} />
           <div className="menu-actions">
             <button className="btn primary" disabled={!paste.trim()} onClick={() => doImport(paste, 'Importierter Ablauf')}>
               Importieren

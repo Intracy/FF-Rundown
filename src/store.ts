@@ -73,6 +73,26 @@ let pristineId: string | null = null;
 const normAll = (rs: Record<string, Rundown>) => Object.fromEntries(Object.entries(rs).map(([k, v]) => [k, normalizeRundown(v)]));
 const normLive = (ls: Record<string, LiveState>) => Object.fromEntries(Object.entries(ls ?? {}).map(([k, v]) => [k, normalizeLive(v)]));
 
+/** Ablauf aus der Adresse (?rd=…), damit Links und neue Fenster denselben Ablauf öffnen */
+const urlRundown = (() => {
+  try {
+    return new URLSearchParams(location.search).get('rd') ?? '';
+  } catch {
+    return '';
+  }
+})();
+
+function syncUrl(id: string) {
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.get('rd') === id) return;
+    u.searchParams.set('rd', id);
+    history.replaceState(history.state, '', u);
+  } catch {
+    /* in eingebetteten Ansichten nicht möglich */
+  }
+}
+
 function initial(): AppState {
   const saved = read<{ rundowns: Record<string, Rundown>; events?: Record<string, EventFolder>; live: Record<string, LiveState>; deleted?: Record<string, number>; activeId: string }>(KEY);
   const ui: UiPrefs = { follow: true, locked: false, hiddenCols: {}, showPrivate: {}, privateNotes: {}, theme: 'system', compact: false, hideDone: false, followPos: 'center', step: 60_000, ...(read<UiPrefs>(UI_KEY) ?? {}) };
@@ -85,7 +105,7 @@ function initial(): AppState {
       events: saved.events ?? {},
       live: normLive(saved.live),
       deleted: saved.deleted ?? {},
-      activeId: ids.includes(saved.activeId) ? saved.activeId : ids[0],
+      activeId: ids.includes(urlRundown) ? urlRundown : ids.includes(saved.activeId) ? saved.activeId : ids[0],
     };
   }
   const r = makeSample();
@@ -94,6 +114,7 @@ function initial(): AppState {
 }
 
 let state: AppState = initial();
+if (!__ARTIFACT__) syncUrl(state.activeId);
 const listeners = new Set<() => void>();
 let saveTimer = 0;
 
@@ -103,7 +124,9 @@ let lastKey = '';
 let lastKeyAt = 0;
 
 function set(patch: Partial<AppState>) {
+  const prevActive = state.activeId;
   state = { ...state, ...patch };
+  if (state.activeId !== prevActive && !__ARTIFACT__) syncUrl(state.activeId);
   const u = undo.get(state.activeId)?.length ?? 0;
   const r = redo.get(state.activeId)?.length ?? 0;
   if (u !== state.undoDepth || r !== state.redoDepth) state = { ...state, undoDepth: u, redoDepth: r };
@@ -117,6 +140,28 @@ function set(patch: Partial<AppState>) {
 }
 
 export const now = () => sync.now();
+
+/* ---------- Gebündeltes Senden beim Tippen ---------- */
+const pendingSend = new Map<string, number>();
+function sendNow(id: string) {
+  const t = pendingSend.get(id);
+  if (t) clearTimeout(t);
+  pendingSend.delete(id);
+  const r = state.rundowns[id];
+  if (r) sync.send({ t: 'rundown', rundown: r });
+}
+function queueSend(id: string) {
+  if (pendingSend.has(id)) return;
+  pendingSend.set(id, window.setTimeout(() => sendNow(id), 250));
+}
+/** Offene Änderungen vor dem Schließen oder Wechseln des Tabs abschicken */
+export function flushPending() {
+  for (const id of [...pendingSend.keys()]) sendNow(id);
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushPending);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushPending());
+}
 
 export const isReadOnly = () => state.role === 'viewer';
 /** Darf den Ablauf bearbeiten (Editor/Admin) */
@@ -155,7 +200,9 @@ export const store = {
     lastKeyAt = t;
     redo.delete(id);
     set({ rundowns: { ...state.rundowns, [id]: next } });
-    sync.send({ t: 'rundown', rundown: next });
+    // Tippen: höchstens alle 250 ms den ganzen Ablauf senden, sonst sofort
+    if (coalesce) queueSend(id);
+    else sendNow(id);
   },
 
   undo(id: string) {
@@ -286,6 +333,8 @@ function applyMsg(m: SyncMsg) {
   }
 }
 
+let initDone = false;
+
 function applyInit(s: ServerState, share: ShareInfo | null, user: UserInfo | null, role: Role, version: string) {
   if (sync.version && version && version !== sync.version) set({ newVersion: version });
   if (share) {
@@ -349,7 +398,8 @@ function applyInit(s: ServerState, share: ShareInfo | null, user: UserInfo | nul
   if (!Object.keys(rundowns).length) return;
   const onAir = Object.keys(rundowns).find((id) => live[id]?.status === 'running' || live[id]?.status === 'paused');
   const newest = Object.values(rundowns).sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
-  const activeId = rundowns[localActive] ? localActive : onAir ?? newest;
+  const activeId = rundowns[urlRundown] && !initDone ? urlRundown : rundowns[localActive] ? localActive : onAir ?? newest;
+  initDone = true;
   set({ rundowns, live, events, deleted, activeId, authRequired: false, share: null, user, role, ui: role === 'operator' || role === 'viewer' ? { ...state.ui, locked: true } : state.ui });
 }
 

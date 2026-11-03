@@ -303,6 +303,24 @@ async def main():
         var = await A.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--tint-violet').trim()")
         ok(var.lower() == '#ff00aa', f'Eigene Farbpalette wirkt ({var})')
 
+        # 12c) Bedienung im Einsatz: Rückgängig-Hinweis, Tastatur-Verschieben, Deep-Link, Renderlast
+        n0 = await A.locator('.row.cue').count()
+        await A.locator('.row.cue').nth(2).locator('button[aria-label="Cue-Optionen"]').click()
+        await A.get_by_role('button', name='In den Papierkorb').click()
+        ok(await A.locator('.toast', has_text='Papierkorb').count() == 1, 'Hinweis nach dem Löschen erscheint (aria-live)')
+        await A.locator('.toast-action', has_text='Rückgängig').click()
+        await A.wait_for_timeout(200)
+        ok(await A.locator('.row.cue').count() == n0, 'Rückgängig im Hinweis stellt den Cue wieder her')
+        t1 = await A.locator('.row.cue .title-input').nth(1).input_value()
+        await A.locator('.row.cue .grip').nth(1).click()
+        await A.keyboard.press('Alt+ArrowUp')
+        await A.wait_for_timeout(200)
+        ok(await A.locator('.row.cue .title-input').nth(0).input_value() == t1, 'Alt + ↑ verschiebt die Auswahl (Tastatur statt Ziehen)')
+        await A.keyboard.press('Control+z')
+        await A.locator('button[aria-label="Auswahl aufheben"]').click()
+        ok('rd=' in A.url, 'Aktiver Ablauf steht in der Adresse')
+        ok(await A.locator('.skip-link').count() == 1 and await A.locator('h1.sr-only').count() == 1, 'Sprunglink und Überschrift vorhanden')
+
         # 13) Übersicht: Event, Vorlage, Archiv, Suche
         await A.keyboard.press('0')
         await A.wait_for_selector('.dash')

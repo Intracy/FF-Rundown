@@ -60,6 +60,19 @@ Welche Funktionen einer typischen Rundown-Software abgedeckt sind und wie sie ge
 - Als App installierbar (PWA), Hinweis „Neue Version verfügbar“, Start- und Installationsskripte für Mac, Linux/Raspberry Pi und Windows
 - Import aller Daten aus FF Rundown inkl. Benutzern und Companion-Tokens
 
+## Bedienung im Einsatz
+
+Die Oberfläche ist nach den [Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines) und den React-Regeln aus [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) überarbeitet (`src/ux.css`):
+
+- Löschen zeigt einen Hinweis mit „Rückgängig“ (aria-live), statt ohne Rückmeldung zu verschwinden
+- Auswahl per Tastatur verschieben: Alt + ↑ / ↓ (Alternative zum Ziehen); beim Ziehen keine Textauswahl
+- Aktiver Ablauf steht in der Adresse (`?rd=…`), Links und neue Timer-/Prompter-Fenster öffnen denselben Ablauf
+- Ruhende Zeilen rendern beim Uhrtakt nicht neu (stabile Timing-Objekte, stabile Handler); Zeilen außerhalb des Bildes werden nicht gezeichnet
+- Beim Tippen wird der Ablauf gebündelt synchronisiert und beim Schließen des Tabs sofort gesendet
+- Sichtbarer Tastaturfokus, Sprunglink zum Inhalt, Fokus wird nicht von klebenden Leisten verdeckt
+- Touch: keine Doppeltipp-Verzögerung, 44 px Ziele, kein Hineinzoomen in Eingabefelder, Menüs scrollen nicht in die Seite durch
+- Keine Autofill-Vorschläge in Ablauffeldern, Platzhalter mit Beispiel, Bilder mit fester Größe
+
 ## Starten
 
 ```bash

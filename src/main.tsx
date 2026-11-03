@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
 import './styles.css';
 import './theme-ff.css';
+import './ux.css';
 
 createRoot(document.getElementById('root')!).render(<App />);
 

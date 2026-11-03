@@ -26,7 +26,7 @@ export function Brand() {
         <path d="M12 13V7.5" stroke="var(--accent)" strokeWidth="2.4" strokeLinecap="round" />
         <path d="M9.5 2.5h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
-      <span className="brand-name">Taktgeber</span>
+      <span className="brand-name" translate="no">Taktgeber</span>
     </span>
   );
 }
@@ -79,7 +79,7 @@ export function TopBar({
               <Brand />
             </button>
           )}
-          {logo && <img src={logo} alt="" className="top-logo" />}
+          {logo && <img src={logo} alt="" className="top-logo" width={120} height={28} />}
           <div className="rd-title">
             {!guest && (
               <button className="icon-btn" onClick={sw.open} aria-label="Abläufe anzeigen" title="Abläufe">
@@ -88,7 +88,7 @@ export function TopBar({
             )}
             <div className="title-col">
               {ev && <span className="crumb">{ev.name}</span>}
-              <input className="title-field" value={r.title} readOnly={locked} aria-label="Name des Ablaufs" onChange={(e) => store.updateRundown(r.id, (x) => ({ ...x, title: e.target.value }), `rt:${r.id}`)} />
+              <input autoComplete="off" className="title-field" value={r.title} readOnly={locked} aria-label="Name des Ablaufs" onChange={(e) => store.updateRundown(r.id, (x) => ({ ...x, title: e.target.value }), `rt:${r.id}`)} />
             </div>
             {readonly && <span className="status-pill s-view">Nur ansehen</span>}
           </div>
@@ -98,7 +98,7 @@ export function TopBar({
               {locked ? (
                 <span className="num">{fmtDate(r.date)}</span>
               ) : (
-                <input type="date" className="date-input" value={r.date} onChange={(e) => e.target.value && store.updateRundown(r.id, (x) => ({ ...x, date: e.target.value }))} />
+                <input autoComplete="off" type="date" className="date-input" value={r.date} onChange={(e) => e.target.value && store.updateRundown(r.id, (x) => ({ ...x, date: e.target.value }))} />
               )}
             </label>
             <div className="meta-field">
@@ -454,7 +454,7 @@ function AdjustPanel({
         ))}
       </div>
       <div className="field-row">
-        <input className="text-input num" placeholder="z. B. 1:30" aria-label="Eigener Wert" value={custom} onChange={(e) => setCustom(e.target.value)} />
+        <input autoComplete="off" className="text-input num" placeholder="z. B. 1:30…" aria-label="Eigener Wert" value={custom} onChange={(e) => setCustom(e.target.value)} />
         <button className="btn small" disabled={v == null} onClick={() => v != null && apply(-v)}>
           −
         </button>
@@ -557,7 +557,7 @@ function MessagePanel({ live, set, close }: { live: LiveState; set: (fn: (l: Liv
           </button>
         </div>
       </div>
-      <textarea ref={ref} id="stage-message" className="text-input" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Text für die Bühne" />
+      <textarea autoComplete="off" ref={ref} id="stage-message" className="text-input" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Text für die Bühne…" />
       <div className="preset-row">
         {presets.map((p) => (
           <button key={p} className="chip-btn" onClick={() => setText(p)}>

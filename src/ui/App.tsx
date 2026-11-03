@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { now as clockNow, store, useApp } from '../store';
-import { computeTimeline } from '../timing';
+import { Timeline, computeTimeline, stabilize } from '../timing';
 import * as L from '../live';
 import { normalizeLive } from '../live';
 import { setDisplay } from '../time';
@@ -11,7 +11,7 @@ import { PrompterView } from './PrompterView';
 import { Dashboard } from './Dashboard';
 import { CodeEntry, Help, ImportExport, MentionsDialog, SettingsDialog, ShareDialog, TrashDialog, VariablesDialog } from './Dialogs';
 import { ApiDialog, AuthScreen, PasswordDialog, UpdateBanner, UsersDialog } from './Account';
-import { TextContext } from './common';
+import { TextContext, Toaster } from './common';
 
 function useClock(interval = 250) {
   const [t, setT] = useState(clockNow());
@@ -62,7 +62,8 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
   const readonly = app.role === 'viewer';
   const canEditRd = app.role === 'editor' || app.role === 'admin';
   setDisplay(r.settings.timezone, r.settings.clock);
-  const tl = useMemo(() => computeTimeline(r, live, now), [r, live, now]);
+  const prevTl = useRef<Timeline | null>(null);
+  const tl = useMemo(() => (prevTl.current = stabilize(prevTl.current, computeTimeline(r, live, now))), [r, live, now]);
   const textCtx = useMemo(() => ({ variables: r.variables, mentions: r.mentions }), [r.variables, r.mentions]);
 
   // Darstellung hell / dunkel / wie System
@@ -189,8 +190,14 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
   return (
     <TextContext.Provider value={textCtx}>
       <div className={`app view-${view}`}>
+        <a className="skip-link" href="#inhalt" onClick={(e) => (e.preventDefault(), document.getElementById('inhalt')?.focus())}>
+          Zum Inhalt springen
+        </a>
         <TopBar r={r} live={live} tl={tl} now={now} view={view} setView={setView} app={app} openDialog={setDialog} />
-        <main className="main">
+        <main className="main" id="inhalt" tabIndex={-1}>
+          <h1 className="sr-only">
+            {VIEWS.find((v) => v.id === view)?.label}: {r.title}
+          </h1>
           {view === 'ablauf' && <RundownView rundown={r} live={live} tl={tl} now={now} locked={app.ui.locked || !canEditRd} follow={app.ui.follow} readonly={readonly} />}
           {view === 'timer' && <OutputView r={r} live={live} tl={tl} now={now} readonly={readonly} />}
           {view === 'prompter' && <PrompterView r={r} live={live} tl={tl} readonly={readonly} />}
@@ -206,6 +213,7 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
         {dialog === 'users' && <UsersDialog app={app} onClose={() => setDialog(null)} />}
         {dialog === 'password' && <PasswordDialog onClose={() => setDialog(null)} />}
         {app.newVersion && <UpdateBanner version={app.newVersion} />}
+        <Toaster />
       </div>
     </TextContext.Provider>
   );

@@ -240,7 +240,7 @@ export function DurationInput({ value, onChange, readOnly, className = '', label
     const ms = parseDur(v);
     if (ms != null) onChange(ms);
   });
-  return <input className={`num-input ${className}`} aria-label={label} title="Dauer: 5 = 5 min, 1:30 = 1 min 30 s, 1:02:00 = 1 h 2 min" readOnly={readOnly} {...p} />;
+  return <input autoComplete="off" className={`num-input ${className}`} aria-label={label} title="Dauer: 5 = 5 min, 1:30 = 1 min 30 s, 1:02:00 = 1 h 2 min" readOnly={readOnly} {...p} />;
 }
 
 export function ClockInput({ value, onChange, readOnly, className = '', label, seconds = true }: { value: number; onChange: (v: number) => void; readOnly?: boolean; className?: string; label: string; seconds?: boolean }) {
@@ -252,7 +252,7 @@ export function ClockInput({ value, onChange, readOnly, className = '', label, s
     },
     fmtTimeInput(value, seconds),
   );
-  return <input className={`num-input ${className}`} aria-label={label} title="Uhrzeit, z. B. 19:30 oder 1930" readOnly={readOnly} {...p} />;
+  return <input autoComplete="off" className={`num-input ${className}`} aria-label={label} title="Uhrzeit, z. B. 19:30 oder 1930" readOnly={readOnly} {...p} />;
 }
 
 /* ---------- Farbwahl ---------- */
@@ -387,7 +387,7 @@ export const SuggestTextarea = React.forwardRef<HTMLTextAreaElement, React.Texta
 
     return (
       <div className="suggest-wrap">
-        <textarea
+        <textarea autoComplete="off"
           {...rest}
           ref={(el) => {
             inner.current = el;
@@ -554,4 +554,58 @@ export async function copyText(text: string, fallbackEl?: HTMLTextAreaElement | 
     }
     return false;
   }
+}
+
+
+/* ---------- Hinweise mit Rückgängig (aria-live) ---------- */
+export interface ToastMsg {
+  id: number;
+  text: string;
+  action?: { label: string; run: () => void };
+}
+let toastSeq = 0;
+const toastSubs = new Set<(t: ToastMsg | null) => void>();
+/** Kurze Rückmeldung unten im Bild, optional mit Aktion (z. B. „Rückgängig“) */
+export function toast(text: string, action?: ToastMsg['action']) {
+  const msg = { id: ++toastSeq, text, action };
+  toastSubs.forEach((f) => f(msg));
+}
+
+export function Toaster() {
+  const [msg, setMsg] = useState<ToastMsg | null>(null);
+  useEffect(() => {
+    const on = (m: ToastMsg | null) => setMsg(m);
+    toastSubs.add(on);
+    return () => {
+      toastSubs.delete(on);
+    };
+  }, []);
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg((m) => (m?.id === msg.id ? null : m)), msg.action ? 7000 : 3500);
+    return () => clearTimeout(t);
+  }, [msg]);
+  return (
+    <div className="toast-region" role="status" aria-live="polite">
+      {msg && (
+        <div className="toast" key={msg.id}>
+          <span>{msg.text}</span>
+          {msg.action && (
+            <button
+              className="toast-action"
+              onClick={() => {
+                msg.action!.run();
+                setMsg(null);
+              }}
+            >
+              {msg.action.label}
+            </button>
+          )}
+          <button className="icon-btn toast-close" aria-label="Hinweis schließen" onClick={() => setMsg(null)}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

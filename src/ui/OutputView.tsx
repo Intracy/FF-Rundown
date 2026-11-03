@@ -84,7 +84,7 @@ export function OutputView({ r, live, tl, now, readonly }: { r: Rundown; live: L
   const header = (
     <div className="out-top">
       <span className="out-head-left">
-        {o.showLogo && logo && <img src={logo} alt="" className="out-logo" />}
+        {o.showLogo && logo && <img src={logo} alt="" className="out-logo" width={200} height={48} />}
         {o.showTitle && <span className="out-show">{r.title}</span>}
       </span>
       {o.layout === 'list' && o.showCueTimer && cur && <span className={`num out-head-timer ${state}`}>{big}</span>}

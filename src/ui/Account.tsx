@@ -56,7 +56,7 @@ export function AuthScreen({ app }: { app: AppState }) {
             <label className="eyebrow" htmlFor="login-email">
               E-Mail
             </label>
-            <input id="login-email" type="email" className="text-input" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
+            <input spellCheck={false} id="login-email" type="email" className="text-input" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
           </>
         )}
         <label className="eyebrow" htmlFor="login-pw">
@@ -239,8 +239,8 @@ export function UsersDialog({ app, onClose }: { app: AppState; onClose: () => vo
             run(() => sync.api('POST', '/api/users', form), `Konto für ${form.email} angelegt. Passwort: ${pw}`).then(() => setForm({ email: '', name: '', role: form.role, password: genPassword() }));
           }}
         >
-          <input id="nu-name" className="text-input" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-label="Name" />
-          <input id="nu-email" className="text-input" type="email" placeholder="E-Mail" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} aria-label="E-Mail" />
+          <input autoComplete="off" id="nu-name" className="text-input" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-label="Name" />
+          <input spellCheck={false} autoComplete="off" id="nu-email" className="text-input" type="email" placeholder="E-Mail" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} aria-label="E-Mail" />
           <select id="nu-role" className="text-input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })} aria-label="Rolle">
             {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
               <option key={r} value={r}>
@@ -249,7 +249,7 @@ export function UsersDialog({ app, onClose }: { app: AppState; onClose: () => vo
             ))}
           </select>
           <span className="pw-gen">
-            <input id="nu-pw" className="text-input num" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} aria-label="Startpasswort" />
+            <input autoComplete="off" id="nu-pw" className="text-input num" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} aria-label="Startpasswort" />
             <button type="button" className="icon-btn" title="Neues Passwort erzeugen" aria-label="Neues Passwort erzeugen" onClick={() => setForm({ ...form, password: genPassword() })}>
               <Icon name="reset" size={14} />
             </button>
@@ -267,7 +267,7 @@ export function UsersDialog({ app, onClose }: { app: AppState; onClose: () => vo
             </button>
           </span>
         )}
-        <input className="text-input" type="search" placeholder="Name oder E-Mail suchen" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Benutzer suchen" />
+        <input autoComplete="off" className="text-input" type="search" placeholder="Name oder E-Mail suchen…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Benutzer suchen" />
         <ul className="user-list">
           {list.map((u) => {
             const me = u.id === app.user?.id;
@@ -347,10 +347,10 @@ export function QrCode({ text, label }: { text: string; label: string }) {
         </div>
       )}
       {full && (
-        <div className="qr-full" onClick={() => setFull(false)} role="dialog" aria-label="QR-Code">
-          <div dangerouslySetInnerHTML={{ __html: svg }} />
+        <button type="button" className="qr-full" onClick={() => setFull(false)} onKeyDown={(e) => e.key === 'Escape' && setFull(false)} aria-label="QR-Code groß, zum Schließen tippen" autoFocus>
+          <span dangerouslySetInnerHTML={{ __html: svg }} />
           <span>{label}</span>
-        </div>
+        </button>
       )}
     </div>
   );
@@ -532,7 +532,7 @@ export function ApiDialog({ r, tl, onClose }: { r: Rundown; tl: Timeline; onClos
             </p>
             <label className="set-field">
               <span className="eyebrow">Zum Bestätigen NEU eingeben</span>
-              <input id="api-confirm" className="text-input" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+              <input autoComplete="off" id="api-confirm" className="text-input" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </label>
             <button
               className="btn danger-fill"

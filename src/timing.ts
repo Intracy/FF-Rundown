@@ -186,3 +186,27 @@ export function computeTimeline(r: Rundown, l: LiveState, now: number): Timeline
     nextHard,
   };
 }
+
+function shallowEqual(a: object, b: object): boolean {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
+  return true;
+}
+
+/**
+ * Übernimmt unveränderte Einträge aus der vorherigen Berechnung.
+ * So bleiben Objekt-Referenzen stabil, und memoisierte Zeilen rendern beim Uhrtakt nicht neu.
+ */
+export function stabilize(prev: Timeline | null, next: Timeline): Timeline {
+  if (!prev) return next;
+  for (const id in next.cues) {
+    const p = prev.cues[id];
+    if (p && shallowEqual(p, next.cues[id])) next.cues[id] = p;
+  }
+  for (const id in next.groups) {
+    const p = prev.groups[id];
+    if (p && shallowEqual(p, next.groups[id])) next.groups[id] = p;
+  }
+  return next;
+}
