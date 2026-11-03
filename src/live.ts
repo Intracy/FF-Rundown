@@ -197,6 +197,21 @@ export function adjust(l: LiveState, delta: number): LiveState {
   return { ...l, adjust: l.adjust + delta };
 }
 
+/** Restzeit des laufenden Cues auf einen festen Wert setzen */
+export function setRemaining(r: Rundown, l: LiveState, ms: number, now: number): LiveState {
+  const cur = cueOf(r, l.currentId);
+  if (!cur || (l.status !== 'running' && l.status !== 'paused')) return l;
+  const rem = Math.max(0, Math.min(24 * 3_600_000, Math.round(ms)));
+  return { ...l, adjust: Math.round(elapsedOf(l, now) + rem - cur.duration) };
+}
+
+/** Gesamtdauer des laufenden Cues nur für diesen Durchlauf setzen (Plan bleibt) */
+export function setDuration(r: Rundown, l: LiveState, ms: number): LiveState {
+  const cur = cueOf(r, l.currentId);
+  if (!cur || (l.status !== 'running' && l.status !== 'paused')) return l;
+  return { ...l, adjust: Math.max(0, Math.min(24 * 3_600_000, Math.round(ms))) - cur.duration };
+}
+
 export function cueNext(l: LiveState, id: string): LiveState {
   return { ...l, nextId: l.nextId === id ? null : id };
 }

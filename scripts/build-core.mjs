@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 await build({
   stdin: {
-    contents: `export * from './src/live.ts'; export { computeTimeline } from './src/timing.ts'; export { normalizeRundown } from './src/model.ts';`,
+    contents: `export * from './src/live.ts'; export * from './src/status.ts'; export { computeTimeline } from './src/timing.ts'; export { normalizeRundown } from './src/model.ts'; export { parseDur } from './src/time.ts';`,
     resolveDir: root,
     sourcefile: 'core-entry.ts',
     loader: 'ts',

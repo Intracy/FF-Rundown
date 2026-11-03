@@ -119,6 +119,7 @@ try {
   ok(first.startsWith('data: ') && JSON.parse(first.slice(6)).rundown.id === 'rd1', 'Server-Sent Events liefern den Live-Status');
   ctl.abort();
 
+
   // Gast-Link „Nur ansehen“ mit Spaltenauswahl
   res = await api('POST', '/api/shares', { rundownId: 'rd1', mode: 'view', columns: ['pub'] });
   const token = res.body.token;
@@ -158,6 +159,71 @@ try {
   const g2 = await client({ share: token });
   ok(g2.msgs.some((m) => m.t === 'auth-required'), 'Deaktivierter Link funktioniert nicht mehr');
   ok((await api('GET', `/api/codes/${res.body.code}`, null, {})).status === 404, 'Code eines deaktivierten Links ist ungültig');
+
+  // ---------- API-Token (Companion-kompatibel) ----------
+  res = await api('GET', '/api/rundowns/rd1/apitoken');
+  const tok = res.body.token;
+  ok(res.status === 200 && tok, 'API-Token für den Ablauf erzeugt');
+  const tapi = async (method, p) => {
+    const r = await fetch(`${base}/api/v1/${tok}${p}`, { method });
+    const ct = r.headers.get('content-type') || '';
+    return { status: r.status, body: ct.includes('json') ? await r.json() : await r.text() };
+  };
+  ok((await tapi('GET', '/start')).body?.current?.id === 'c1', 'Token-API: /start per GET ohne Passwort');
+  ok(['running', 'warning'].includes((await tapi('GET', '/status')).body?.state), 'Token-API: /status liefert flache Werte');
+  ok((await tapi('POST', '/set?time=05:00')).status === 200 && Math.abs((await tapi('GET', '/status')).body.remaining_sec - 300) <= 1, 'Token-API: Restzeit auf 05:00 setzen');
+  await tapi('POST', '/setduration?minutes=2');
+  ok((await tapi('GET', '/status')).body.duration_sec === 120, 'Token-API: Dauer des laufenden Cues setzen');
+  await tapi('POST', '/minus?seconds=30');
+  ok((await tapi('GET', '/status')).body.duration_sec === 90, 'Token-API: minus 30 s');
+  ok(typeof (await tapi('GET', '/text/remaining')).body === 'string', 'Token-API: /text/remaining als Klartext');
+  ok((await tapi('GET', '/text/gibtsnicht')).status === 404, 'Token-API: unbekanntes Feld 404');
+  ok((await tapi('GET', '/goto?item=3')).body?.current?.id === 'c3', 'Token-API: /goto per Cue-Nummer');
+  ok((await tapi('GET', '/rundown')).body?.items?.length === 3, 'Token-API: /rundown mit allen Einträgen');
+  ok((await fetch(`${base}/api/companion/${tok}/status`)).status === 200, 'Alte Companion-Adresse funktioniert');
+  await tapi('POST', '/stop');
+  ok((await tapi('POST', '/plus?seconds=10')).status === 409, 'Zeitänderung ohne laufenden Cue: 409');
+  ok((await api('POST', '/api/rundowns/rd1/apitoken/regenerate', { confirm: 'nein' })).status === 400, 'Neu erzeugen ohne „NEU“ abgelehnt');
+  const tok2 = (await api('POST', '/api/rundowns/rd1/apitoken/regenerate', { confirm: 'NEU' })).body.token;
+  ok(tok2 && tok2 !== tok && (await fetch(`${base}/api/v1/${tok}/status`)).status === 404, 'Alter Token nach Neuerzeugung gesperrt');
+  ok((await api('GET', '/api/health', null, {})).body?.version, 'Health mit Version');
+  await api('POST', '/api/rundowns/rd1/reset');
+
+  // ---------- Benutzer & Rollen ----------
+  const mk = async (email, role) => (await api('POST', '/api/users', { email, name: role, password: 'passwort-' + role, role })).body;
+  const ed = await mk('editor@test.de', 'editor');
+  await mk('op@test.de', 'operator');
+  await mk('view@test.de', 'viewer');
+  ok(ed?.role === 'editor', 'Admin legt Benutzer an');
+  ok((await api('POST', '/api/users', { email: 'editor@test.de', password: 'xxxxxxxx' })).status === 409, 'Doppelte E-Mail abgelehnt');
+  const login = async (email, pw) => (await api('POST', '/api/auth/login', { email, password: pw }, { 'Content-Type': 'application/json' })).body;
+  ok((await api('POST', '/api/auth/login', { email: 'op@test.de', password: 'falsch-falsch' }, { 'Content-Type': 'application/json' })).status === 401, 'Falsches Benutzer-Passwort: 401');
+  const opTok = (await login('op@test.de', 'passwort-operator')).token;
+  const viewTok = (await login('view@test.de', 'passwort-viewer')).token;
+  const edTok = (await login('editor@test.de', 'passwort-editor')).token;
+  const as = (t) => ({ Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' });
+  ok((await api('POST', '/api/rundowns/rd1/start', {}, as(opTok))).status === 200, 'Operator darf die Show steuern');
+  ok((await api('POST', '/api/rundowns/rd1/start', {}, as(viewTok))).status === 403, 'Viewer darf nicht steuern');
+  ok((await api('GET', '/api/rundowns/rd1/apitoken', null, as(opTok))).status === 403, 'Operator sieht keinen API-Token');
+  ok((await api('GET', '/api/users', null, as(edTok))).status === 403, 'Editor darf keine Benutzer verwalten');
+  const wsAs = async (t) => client({ auth: t });
+  const opWs = await wsAs(opTok);
+  ok(opWs.msgs.find((m) => m.t === 'init')?.role === 'operator', 'WebSocket meldet Rolle Operator');
+  opWs.send({ t: 'rundown', rundown: { ...rundown, title: 'Operator-Änderung', updatedAt: Date.now() + 1e7 } });
+  await sleep(250);
+  ok((await api('GET', '/api/rundowns/rd1')).body.rundown.title !== 'Operator-Änderung', 'Operator kann den Ablauf nicht bearbeiten');
+  const edWs = await wsAs(edTok);
+  edWs.send({ t: 'rundown', rundown: { ...rundown, title: 'Editor-Änderung', updatedAt: Date.now() + 2e7 } });
+  await sleep(250);
+  ok((await api('GET', '/api/rundowns/rd1')).body.rundown.title === 'Editor-Änderung', 'Editor kann den Ablauf bearbeiten');
+  await api('PATCH', `/api/users/${ed.id}`, { role: 'viewer' });
+  await sleep(200);
+  ok(edWs.ws.readyState !== 1, 'Rollenwechsel trennt bestehende Verbindungen');
+  ok((await api('GET', '/api/rundowns/rd1/now', null, as(edTok))).status === 401, 'Alte Sitzung nach Rollenwechsel ungültig');
+  const pwRes = await api('POST', '/api/auth/password', { current: 'passwort-viewer', next: 'ganz-neues-pw' }, as(viewTok));
+  ok(pwRes.status === 200 && pwRes.body.token, 'Eigenes Passwort ändern');
+  ok((await login('view@test.de', 'ganz-neues-pw')).token, 'Anmeldung mit neuem Passwort');
+  for (const c of [opWs, edWs]) c.ws.close();
 
   for (const c of [anon, wrong, a, b, g, e, g2]) c.ws.close();
 } catch (err) {

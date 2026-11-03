@@ -94,7 +94,31 @@ Legende: ✅ umgesetzt · ◐ teilweise / anders gelöst · — nicht umgesetzt
 ## Testumfang
 
 - `npm test`: 42 Prüfungen der Timing-Logik, darunter der Referenzablauf mit 22 Cues und 8 Gruppen
-- `npm run test:api`: 33 Prüfungen von Server, Sync, Anmeldung, Gast-Links, Codes, Steuer-API und Auto-Start
+- `npm run test:api`: 62 Prüfungen von Server, Sync, Benutzern und Rollen, Gast-Links, Codes, Token-API und Auto-Start
+- `python3 scripts/e2e-accounts.py`: 26 Prüfungen für Konten, Rollen, API-Dialog, QR und Handy
 - `python3 scripts/e2e.py`: 58 Prüfungen der Oberfläche in Chrome (Desktop, Gast, Handy)
 
 Die vorhandenen Produktions-Abläufe wurden nur angesehen, nicht verändert. Für den Abgleich der Menüs wurde im Event „MFY MUC 2026“ der Ablauf „Taktgeber Funktionstest“ angelegt.
+
+## Übernommen aus FF Rundown v1.9.1
+
+Die eigenständige Fassung „FF Rundown“ (Node + SQLite) wurde gestartet, durchgeklickt und mit Taktgeber abgeglichen. Alles, was Taktgeber noch fehlte, ist jetzt enthalten:
+
+| Funktion | Taktgeber | Test |
+|---|---|---|
+| Benutzerkonten mit E-Mail/Passwort, Rollen Admin/Editor/Operator/Viewer, Einrichtung beim ersten Start | ✅ (gleiches scrypt-Format, Konten lassen sich übernehmen) | API, e2e-accounts |
+| Benutzerverwaltung, Passwort ändern/zurücksetzen, Login-Drosselung | ✅ | API, e2e-accounts |
+| API-Token pro Ablauf, GET und POST, `/status`, `/text/<feld>`, `/cue`, `/rundown`, Sperren mit „NEU“ | ✅ (Pfade kompatibel, inkl. `/api/companion/…`) | API |
+| Restzeit setzen, Dauer für den Durchlauf setzen | ✅ (UI und API) | API, e2e-accounts |
+| Schrittweite der ±-Knöpfe, „Live seit“ | ✅ | e2e-accounts |
+| API-Dialog mit Kopieren, Test und Integrations-Anleitung | ✅ | e2e-accounts |
+| Block-Ende | ✅ | e2e-accounts |
+| Freie Farbe pro Punkt/Block | ✅ | e2e-accounts |
+| Kompakte Zeilen, erledigte ausblenden, Mitlaufen oben | ✅ | e2e-accounts |
+| Hell/Dunkel umschaltbar | ✅ | e2e-accounts |
+| Übersicht als Kacheln/Liste, Gruppen Live/Heute/Kommend/Vergangen | ✅ | Sichtprüfung |
+| Handy: Karten, aufklappbar, feste Steuerleiste unten, Touch-Umsortieren | ✅ | e2e-accounts |
+| QR-Code für öffentliche Links (Vollbild, PNG/SVG) | ✅ (QR-Encoder aus FF Rundown) | e2e-accounts |
+| PWA (installierbar), Update-Hinweis, `/api/health` mit Version | ✅ | API |
+| Start-/Installationsskripte Mac, Linux/Pi, Windows, systemd, `.env` | ✅ | – |
+| Datenübernahme | ✅ `scripts/import-ff-rundown.mjs` | manuell mit Test-Datenbank |

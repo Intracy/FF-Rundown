@@ -9,7 +9,8 @@ import { DialogId, TopBar, VIEWS, View } from './TopBar';
 import { OutputView } from './OutputView';
 import { PrompterView } from './PrompterView';
 import { Dashboard } from './Dashboard';
-import { CodeEntry, Help, ImportExport, LoginScreen, MentionsDialog, SettingsDialog, ShareDialog, TrashDialog, VariablesDialog } from './Dialogs';
+import { CodeEntry, Help, ImportExport, MentionsDialog, SettingsDialog, ShareDialog, TrashDialog, VariablesDialog } from './Dialogs';
+import { ApiDialog, AuthScreen, PasswordDialog, UpdateBanner, UsersDialog } from './Account';
 import { TextContext } from './common';
 
 function useClock(interval = 250) {
@@ -49,7 +50,7 @@ export function App() {
   const [rawView, setView] = useHashView();
   const view: View = app.share && rawView === 'uebersicht' ? 'ablauf' : rawView;
   if (view === 'code') return <CodeEntry />;
-  if (app.authRequired) return <LoginScreen error={app.authError} />;
+  if (app.authRequired) return <AuthScreen app={app} />;
   return <Main app={app} view={view} setView={setView} />;
 }
 
@@ -58,10 +59,18 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
   const live = app.live[r.id] ?? normalizeLive(null);
   const now = useClock();
   const [dialog, setDialog] = useState<null | DialogId>(null);
-  const readonly = app.share?.mode === 'view';
+  const readonly = app.role === 'viewer';
+  const canEditRd = app.role === 'editor' || app.role === 'admin';
   setDisplay(r.settings.timezone, r.settings.clock);
   const tl = useMemo(() => computeTimeline(r, live, now), [r, live, now]);
   const textCtx = useMemo(() => ({ variables: r.variables, mentions: r.mentions }), [r.variables, r.mentions]);
+
+  // Darstellung hell / dunkel / wie System
+  useEffect(() => {
+    const root = document.documentElement;
+    if (app.ui.theme === 'system') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', app.ui.theme);
+  }, [app.ui.theme]);
 
   // Eigene Farbpalette des Ablaufs auf alle Ansichten (auch Popover) anwenden
   useEffect(() => {
@@ -144,7 +153,7 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
           break;
         case 'l':
         case 'L':
-          if (!s.share || s.share.mode === 'edit') store.setUi({ locked: !s.ui.locked });
+          if (s.role === 'editor' || s.role === 'admin') store.setUi({ locked: !s.ui.locked });
           break;
         case 'g':
         case 'G':
@@ -182,7 +191,7 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
       <div className={`app view-${view}`}>
         <TopBar r={r} live={live} tl={tl} now={now} view={view} setView={setView} app={app} openDialog={setDialog} />
         <main className="main">
-          {view === 'ablauf' && <RundownView rundown={r} live={live} tl={tl} now={now} locked={app.ui.locked || readonly} follow={app.ui.follow} readonly={readonly} />}
+          {view === 'ablauf' && <RundownView rundown={r} live={live} tl={tl} now={now} locked={app.ui.locked || !canEditRd} follow={app.ui.follow} readonly={readonly} />}
           {view === 'timer' && <OutputView r={r} live={live} tl={tl} now={now} readonly={readonly} />}
           {view === 'prompter' && <PrompterView r={r} live={live} tl={tl} readonly={readonly} />}
         </main>
@@ -193,6 +202,10 @@ function Main({ app, view, setView }: { app: ReturnType<typeof useApp>; view: Vi
         {dialog === 'mentions' && <MentionsDialog r={r} onClose={() => setDialog(null)} />}
         {dialog === 'trash' && <TrashDialog r={r} onClose={() => setDialog(null)} />}
         {dialog === 'share' && <ShareDialog r={r} onClose={() => setDialog(null)} />}
+        {dialog === 'api' && <ApiDialog r={r} tl={tl} onClose={() => setDialog(null)} />}
+        {dialog === 'users' && <UsersDialog app={app} onClose={() => setDialog(null)} />}
+        {dialog === 'password' && <PasswordDialog onClose={() => setDialog(null)} />}
+        {app.newVersion && <UpdateBanner version={app.newVersion} />}
       </div>
     </TextContext.Provider>
   );

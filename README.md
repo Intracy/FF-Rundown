@@ -43,6 +43,23 @@ Welche Funktionen einer typischen Rundown-Software abgedeckt sind und wie sie ge
 - CSV-Export (Semikolon, Excel-tauglich, Variablen eingesetzt) und CSV-Import aus Excel/Google Sheets
 - JSON-Sicherung und -Wiederherstellung; Drucken / PDF über den Browser
 
+**Benutzer & Rollen** (mit Server)
+- Anmeldung mit E-Mail und Passwort, beim ersten Start wird das Admin-Konto im Browser angelegt
+- Rollen: **Admin** (alles, inkl. Benutzerverwaltung), **Editor** (Abläufe bearbeiten, Gäste einladen, API), **Operator** (ansehen und Show steuern), **Viewer** (nur ansehen)
+- Benutzerverwaltung mit erzeugten Startpasswörtern, Passwort zurücksetzen, eigenes Passwort ändern; Rollenwechsel meldet bestehende Sitzungen ab
+- Login-Drosselung, Passwörter mit scrypt, signierte Sitzungstokens
+
+**Aus FF Rundown übernommen**
+- Block-Ende (schließt eine Gruppe), freie Farbe pro Cue und Überschrift
+- Restzeit setzen, Dauer nur für diesen Durchlauf setzen, Schrittweite der ±-Knöpfe (10 s bis 10 min), „Live seit“
+- Ansicht: kompakte Zeilen, erledigte Cues ausblenden, laufenden Cue oben oder mittig halten, Darstellung Hell/Dunkel/System
+- Übersicht als Liste oder Kacheln, gruppiert nach Live / Heute / Kommend / Vergangen mit „in 3 Tagen“
+- Handy: Cues als Karten (leere Felder ausgeblendet, aufklappbar), feste Steuerleiste unten mit großem „Nächster“, Umsortieren per Finger
+- QR-Code für Gast-Links (Vollbild, PNG/SVG)
+- API-Token pro Ablauf (Companion-kompatibel, siehe unten) mit Test direkt im Dialog und Sperren/Neu erzeugen
+- Als App installierbar (PWA), Hinweis „Neue Version verfügbar“, Start- und Installationsskripte für Mac, Linux/Raspberry Pi und Windows
+- Import aller Daten aus FF Rundown inkl. Benutzern und Companion-Tokens
+
 ## Starten
 
 ```bash
@@ -51,6 +68,25 @@ cd ff-rundown
 npm install
 npm start          # baut und startet den Server auf http://localhost:8787
 ```
+
+Beim ersten Aufruf legst du im Browser das Admin-Konto an.
+
+Ohne Terminal:
+- **Mac:** `start-mac.command` doppelklicken (öffnet den Browser). Dauerhaft im Hintergrund: `./install-mac-autostart.sh` (entfernen mit `--remove`).
+- **Linux / Raspberry Pi:** `sudo ./install-linux.sh` richtet den Dienst `taktgeber` ein (erneut ausführen = Update). Nur ausprobieren: `./start.sh`.
+- **Windows:** `start-windows.bat` doppelklicken.
+
+Einstellungen über Umgebungsvariablen oder eine `.env`-Datei (Vorlage: `.env.example`): `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `SESSION_SECRET`, `ADMIN_PASSWORD`.
+
+### Umzug von FF Rundown
+
+```bash
+# FF Rundown stoppen, dann (Node.js ≥ 22.13):
+node scripts/import-ff-rundown.mjs /pfad/zu/ff-rundown/data/rundown.db
+npm start
+```
+
+Übernommen werden Benutzer (Passwörter bleiben gültig), Abläufe, Spalten, Programmpunkte, Blöcke und Block-Enden, Farben, öffentliche Links (als Gast-Links „Nur ansehen“ mit denselben öffentlichen Spalten) und die Companion-Tokens. In Companion nur Host und Port ändern: `http://<server>:8787/api/v1/<TOKEN>`.
 
 Andere Geräte im Netz öffnen `http://<IP-des-Rechners>:8787`. Timer: `/#timer`, Prompter: `/#prompter`, Code eingeben: `/#code`.
 
@@ -79,33 +115,38 @@ ADMIN_PASSWORD='ein-langes-passwort' docker compose up -d --build
 
 Daten liegen in `./data/state.json`.
 
-## Steuer-API (Stream Deck, Bitfocus Companion, Grafik)
+## API (Stream Deck, Bitfocus Companion, Grafik)
 
-Alle Pfade unter `/api`, Antwort JSON. `:id` ist die Ablauf-ID (siehe `GET /api/rundowns`).
+### Token-API pro Ablauf (ohne Anmeldung)
 
-| Methode | Pfad | Wirkung |
-|---|---|---|
-| GET | `/api/rundowns` | Liste der Abläufe mit Status |
-| GET | `/api/rundowns/:id` | Ablauf und Live-Zustand |
-| GET | `/api/rundowns/:id/now` | Kompakt: aktueller/nächster Cue, Restzeit, Über/Unter, Nachricht, Unter-Timer |
-| GET | `/api/rundowns/:id/events` | dasselbe als Server-Sent Events (jede Sekunde und bei jeder Änderung) |
-| POST | `/api/rundowns/:id/start` · `pause` · `toggle` · `next` · `previous` · `end` · `reset` | Show-Steuerung |
-| POST | `/api/rundowns/:id/adjust` `{ "ms": 60000 }` | Laufenden Cue verlängern (negativ: kürzen) |
-| POST | `/api/rundowns/:id/cue/:cue/live` | Cue sofort live schalten (`:cue` = ID oder Nummer, z. B. `A03`) |
-| POST | `/api/rundowns/:id/cue/:cue/next` | Cue als Nächstes vormerken |
-| POST | `/api/rundowns/:id/message` `{ "text", "visible", "bold", "underline", "color": "white"\|"red", "flash" }` | Bühnennachricht |
-| GET/PUT | `/api/rundowns/:id/variables` | Text-Variablen lesen / setzen (`null` löscht) |
-| POST | `/api/rundowns/:id/subtimers/:timer/start` · `pause` · `reset` | Unter-Timer steuern |
+Im Ablauf unter **Mehr → API & Integrationen** steht die Basis-URL `http://<server>:8787/api/v1/<TOKEN>` mit Kopier-Knopf und Test. Alle Aktionen gehen per **GET oder POST**, Parameter als Query oder JSON-Body. Die Pfade entsprechen FF Rundown, alte Adressen `/api/companion/<TOKEN>/…` funktionieren weiter.
 
-Beispiel für einen Stream-Deck-Knopf „Nächster“ (Companion, Generic HTTP):
-`POST http://nas:8787/api/rundowns/<id>/next` mit Header `Authorization: Bearer <passwort>`.
+| Pfad | Wirkung |
+|---|---|
+| `/start` (optional `?item=<Nummer oder ID>`) · `/next` · `/prev` · `/goto?item=…` · `/toggle` · `/pause` · `/stop` · `/reset` | Show steuern |
+| `/plus?seconds=60` · `/minus?seconds=60` · `/add?seconds=-30` | Zeit am laufenden Cue |
+| `/set?time=05:00` | Restzeit setzen |
+| `/setduration?time=10:00` | Dauer des laufenden Cues für diesen Durchlauf |
+| `/message?text=…&color=red&visible=true` | Bühnennachricht |
+| `/status` | flache Werte für Companion-Variablen (`title`, `next`, `remaining`, `remaining_sec`, `delta`, `state`, `projected_end`, `progress`, `item_number`, `clock` …) |
+| `/text/<feld>` | Einzelwert als Klartext, z. B. `/text/remaining` |
+| `/cue` · `/rundown` | aktueller Cue bzw. kompletter Ablauf als JSON |
+| `/events` | Server-Sent Events für Overlays |
+
+Zeitangaben: `seconds=90`, `minutes=1.5` oder `time=01:30`. Ohne laufenden Cue antworten die Zeit-Endpunkte mit 409. Den Token im Notfall unter „Sicherheit“ sperren und neu erzeugen (Bestätigung mit „NEU“).
+
+### Mit Benutzer-Anmeldung
+
+`POST /api/auth/login` mit `{ "email", "password" }` liefert ein Token für `Authorization: Bearer …`. Dann u. a.:
+`GET /api/rundowns`, `GET /api/rundowns/:id/now|status|export|events`, ab Rolle Operator `POST /api/rundowns/:id/<aktion>` (dieselben Aktionen wie oben, dazu `cue/:cue/live`, `cue/:cue/next`, `subtimers/:timer/start|pause|reset`), ab Editor `GET/PUT /api/rundowns/:id/variables`.
 
 ## Tests
 
 ```bash
 npm test                 # Timing-Logik inkl. Referenzzeiten, Zeitzonen, Unter-Timer
-npm run test:api         # Server: Sync, Anmeldung, Gast-Links, Codes, Steuer-API, Auto-Start
-python3 scripts/e2e.py   # Oberfläche gegen laufenden Server (Playwright), siehe Kopf der Datei
+npm run test:api         # Server: Sync, Benutzer & Rollen, Gast-Links, Codes, Token-API, Auto-Start
+python3 scripts/e2e.py            # Oberfläche gegen laufenden Server mit ADMIN_PASSWORD (Playwright)
+python3 scripts/e2e-accounts.py   # Konten, Rollen, API-Dialog, QR, Handy-Karten (Server ohne ADMIN_PASSWORD)
 ```
 
 ## Weitere Befehle

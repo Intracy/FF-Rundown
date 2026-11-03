@@ -3,7 +3,7 @@ import { EventFolder, LiveState, Rundown } from './types';
 import { normalizeLive } from './live';
 import { normalizeRundown } from './model';
 import { makeSample } from './sample';
-import { ServerState, ShareInfo, SyncMsg, SyncStatus, sync } from './sync';
+import { AuthMode, Role, ServerState, ShareInfo, SyncMsg, SyncStatus, UserInfo, sync } from './sync';
 
 const KEY = 'taktgeber:v1';
 const UI_KEY = 'taktgeber:ui';
@@ -17,6 +17,14 @@ export interface UiPrefs {
   showPrivate: Record<string, boolean>;
   /** Je Ablauf und Cue: private Notizen (nur auf diesem Gerät) */
   privateNotes: Record<string, Record<string, string>>;
+  /** Hell / Dunkel / wie System */
+  theme: 'system' | 'light' | 'dark';
+  compact: boolean;
+  hideDone: boolean;
+  /** Laufender Cue beim Mitlaufen oben oder in der Mitte */
+  followPos: 'top' | 'center';
+  /** Schrittweite der ±-Knöpfe in ms */
+  step: number;
 }
 
 export interface AppState {
@@ -31,7 +39,13 @@ export interface AppState {
   /** Zugriff über Gast-Link: nur dieser Ablauf, ggf. nur lesen */
   share: ShareInfo | null;
   authRequired: boolean;
+  authMode: AuthMode;
   authError: string;
+  user: UserInfo | null;
+  /** Rechte dieser Sitzung (ohne Server: admin) */
+  role: Role;
+  /** Neuere Server-Version gefunden: Hinweis zum Neuladen */
+  newVersion: string;
   undoDepth: number;
   redoDepth: number;
 }
@@ -61,8 +75,8 @@ const normLive = (ls: Record<string, LiveState>) => Object.fromEntries(Object.en
 
 function initial(): AppState {
   const saved = read<{ rundowns: Record<string, Rundown>; events?: Record<string, EventFolder>; live: Record<string, LiveState>; deleted?: Record<string, number>; activeId: string }>(KEY);
-  const ui: UiPrefs = { follow: true, locked: false, hiddenCols: {}, showPrivate: {}, privateNotes: {}, ...(read<UiPrefs>(UI_KEY) ?? {}) };
-  const base = { syncStatus: 'local' as SyncStatus, peers: 1, ui, share: null, authRequired: false, authError: '', undoDepth: 0, redoDepth: 0 };
+  const ui: UiPrefs = { follow: true, locked: false, hiddenCols: {}, showPrivate: {}, privateNotes: {}, theme: 'system', compact: false, hideDone: false, followPos: 'center', step: 60_000, ...(read<UiPrefs>(UI_KEY) ?? {}) };
+  const base = { syncStatus: 'local' as SyncStatus, peers: 1, ui, share: null, authRequired: false, authMode: 'password' as AuthMode, authError: '', user: null, role: 'admin' as Role, newVersion: '', undoDepth: 0, redoDepth: 0 };
   if (!sync.isShareLink && saved && saved.rundowns && Object.keys(saved.rundowns).length) {
     const ids = Object.keys(saved.rundowns);
     return {
@@ -104,7 +118,9 @@ function set(patch: Partial<AppState>) {
 
 export const now = () => sync.now();
 
-export const isReadOnly = () => state.share?.mode === 'view';
+export const isReadOnly = () => state.role === 'viewer';
+/** Darf den Ablauf bearbeiten (Editor/Admin) */
+export const canEdit = () => state.role === 'editor' || state.role === 'admin';
 
 export const store = {
   get: () => state,
@@ -123,7 +139,7 @@ export const store = {
 
   /** Ablauf ändern. coalesce bündelt schnelle Folgeänderungen (z. B. Tippen) zu einem Undo-Schritt. */
   updateRundown(id: string, fn: (r: Rundown) => Rundown, coalesce?: string) {
-    if (isReadOnly()) return;
+    if (!canEdit()) return;
     const prev = state.rundowns[id];
     if (!prev) return;
     if (id === pristineId) pristineId = null;
@@ -143,8 +159,9 @@ export const store = {
   },
 
   undo(id: string) {
+    if (!canEdit()) return;
     const prev = undo.get(id)?.pop();
-    if (!prev || isReadOnly()) return;
+    if (!prev) return;
     redo.set(id, [...(redo.get(id) ?? []), state.rundowns[id]]);
     lastKey = '';
     const restored = { ...prev, updatedAt: now() };
@@ -153,8 +170,9 @@ export const store = {
   },
 
   redo(id: string) {
+    if (!canEdit()) return;
     const nxt = redo.get(id)?.pop();
-    if (!nxt || isReadOnly()) return;
+    if (!nxt) return;
     undo.set(id, [...(undo.get(id) ?? []), state.rundowns[id]]);
     lastKey = '';
     const restored = { ...nxt, updatedAt: now() };
@@ -163,14 +181,14 @@ export const store = {
   },
 
   addRundown(r: Rundown, activate = true) {
-    if (state.share) return;
+    if (state.share || !canEdit()) return;
     const rr = { ...normalizeRundown(r), updatedAt: now() };
     set({ rundowns: { ...state.rundowns, [rr.id]: rr }, ...(activate ? { activeId: rr.id } : {}) });
     sync.send({ t: 'rundown', rundown: rr });
   },
 
   deleteRundown(id: string) {
-    if (state.share) return;
+    if (state.share || !canEdit()) return;
     const rundowns = { ...state.rundowns };
     delete rundowns[id];
     const live = { ...state.live };
@@ -188,14 +206,14 @@ export const store = {
   },
 
   saveEvent(e: EventFolder) {
-    if (state.share) return;
+    if (state.share || !canEdit()) return;
     const ev = { ...e, updatedAt: now() };
     set({ events: { ...state.events, [ev.id]: ev } });
     sync.send({ t: 'event', event: ev });
   },
 
   deleteEvent(id: string) {
-    if (state.share) return;
+    if (state.share || !canEdit()) return;
     const events = { ...state.events };
     delete events[id];
     const at = now();
@@ -223,6 +241,20 @@ export const store = {
   login(password: string) {
     set({ authError: '' });
     sync.login(password);
+  },
+
+  async signIn(kind: 'login' | 'setup', body: { email: string; password: string; name?: string }) {
+    set({ authError: '' });
+    try {
+      await sync.signIn(kind, body);
+    } catch (e) {
+      set({ authError: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  signOut() {
+    sync.signOut();
+    set({ authRequired: true, authMode: 'login', user: null, authError: '' });
   },
 };
 
@@ -254,7 +286,8 @@ function applyMsg(m: SyncMsg) {
   }
 }
 
-function applyInit(s: ServerState, share: ShareInfo | null) {
+function applyInit(s: ServerState, share: ShareInfo | null, user: UserInfo | null, role: Role, version: string) {
+  if (sync.version && version && version !== sync.version) set({ newVersion: version });
   if (share) {
     // Gast: ausschließlich den freigegebenen Ablauf übernehmen
     const r = s.rundowns?.[share.rundownId];
@@ -266,6 +299,8 @@ function applyInit(s: ServerState, share: ShareInfo | null) {
       events: {},
       activeId: r.id,
       share,
+      role,
+      user: null,
       authRequired: false,
       ui: share.mode === 'view' ? { ...state.ui, locked: true } : state.ui,
     });
@@ -315,14 +350,14 @@ function applyInit(s: ServerState, share: ShareInfo | null) {
   const onAir = Object.keys(rundowns).find((id) => live[id]?.status === 'running' || live[id]?.status === 'paused');
   const newest = Object.values(rundowns).sort((a, b) => b.updatedAt - a.updatedAt)[0].id;
   const activeId = rundowns[localActive] ? localActive : onAir ?? newest;
-  set({ rundowns, live, events, deleted, activeId, authRequired: false, share: null });
+  set({ rundowns, live, events, deleted, activeId, authRequired: false, share: null, user, role, ui: role === 'operator' || role === 'viewer' ? { ...state.ui, locked: true } : state.ui });
 }
 
 sync.start({
   onInit: applyInit,
   onMsg: applyMsg,
   onStatus: (syncStatus, peers) => set({ syncStatus, peers }),
-  onAuthRequired: (error) => set({ authRequired: true, authError: error }),
+  onAuthRequired: (mode, error) => set({ authRequired: true, authMode: mode, authError: error }),
 });
 
 export function useApp(): AppState {

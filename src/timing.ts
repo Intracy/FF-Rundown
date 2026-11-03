@@ -129,6 +129,13 @@ export function computeTimeline(r: Rundown, l: LiveState, now: number): Timeline
   for (const item of r.items) {
     if (!isCue(item)) {
       closeGroup();
+      if (item.end) {
+        // Block-Ende: Gruppe schließen, Zusammenfassung der beendeten Gruppe übernehmen
+        groups[item.id] = g ? { ...g } : { total: 0, count: 0, start: null, end: null, plannedStart: null, plannedEnd: null, elapsed: null };
+        g = null;
+        groupLive = false;
+        continue;
+      }
       g = groups[item.id] = { total: 0, count: 0, start: null, end: null, plannedStart: null, plannedEnd: null, elapsed: null };
       groupLive = false;
       continue;

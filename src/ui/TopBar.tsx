@@ -5,11 +5,12 @@ import { fmtClock, fmtCountdown, fmtDate, fmtDur, parseDur } from '../time';
 import { AppState, now as clockNow, store } from '../store';
 import * as L from '../live';
 import { sync } from '../sync';
-import { ClockInput, Icon, Popover, Toggle, usePopover } from './common';
+import { ClockInput, DurationInput, Icon, Popover, Toggle, usePopover } from './common';
+import { ROLE_LABEL, UserMenu, initials } from './Account';
 import { RundownSwitcher } from './Dialogs';
 
 export type View = 'uebersicht' | 'ablauf' | 'timer' | 'prompter' | 'code';
-export type DialogId = 'io' | 'help' | 'settings' | 'variables' | 'mentions' | 'trash' | 'share';
+export type DialogId = 'io' | 'help' | 'settings' | 'variables' | 'mentions' | 'trash' | 'share' | 'api' | 'users' | 'password';
 
 export const VIEWS: { id: View; label: string }[] = [
   { id: 'ablauf', label: 'Ablauf' },
@@ -51,6 +52,8 @@ export function TopBar({
 }) {
   const sw = usePopover();
   const more = usePopover();
+  const view_ = usePopover();
+  const um = usePopover();
   const [confirmReset, setConfirmReset] = useState(false);
   const locked = app.ui.locked;
   const readonly = app.share?.mode === 'view';
@@ -133,10 +136,32 @@ export function TopBar({
             {syncLabel}
           </span>
 
+          <button className="icon-btn" onClick={view_.open} aria-label="Ansicht" title="Ansicht">
+            <Icon name="eye" />
+          </button>
           <button className="icon-btn" onClick={more.open} aria-label="Weitere Funktionen" title="Mehr">
             <Icon name="dots" />
           </button>
+          {!guest && (
+            <button className="user-btn" onClick={um.open} aria-label="Konto" title={`${app.user?.name || app.user?.email || 'Admin'} · ${ROLE_LABEL[app.role]}`}>
+              <span className="avatar small" aria-hidden="true">
+                {initials(app.user?.name || app.user?.email || 'A')}
+              </span>
+              <span className="user-role">{ROLE_LABEL[app.role]}</span>
+            </button>
+          )}
         </div>
+
+        {view_.anchor && (
+          <Popover anchor={view_.anchor} onClose={view_.close} align="end" className="menu">
+            <ViewMenu app={app} />
+          </Popover>
+        )}
+        {um.anchor && (
+          <Popover anchor={um.anchor} onClose={um.close} align="end" className="menu">
+            <UserMenu app={app} close={um.close} openUsers={() => openDialog('users')} openPassword={() => openDialog('password')} />
+          </Popover>
+        )}
 
         {sw.anchor && (
           <Popover anchor={sw.anchor} onClose={sw.close} className="menu wide">
@@ -165,10 +190,15 @@ export function TopBar({
                   </button>
                 </>
               )}
-              {!guest && (
-                <button onClick={() => (openDialog('share'), more.close())}>
-                  <Icon name="share" size={14} /> Gäste einladen
-                </button>
+              {!guest && (app.role === 'editor' || app.role === 'admin') && (
+                <>
+                  <button onClick={() => (openDialog('share'), more.close())}>
+                    <Icon name="share" size={14} /> Gäste einladen
+                  </button>
+                  <button onClick={() => (openDialog('api'), more.close())}>
+                    <Icon name="keyboard" size={14} /> API & Integrationen
+                  </button>
+                </>
               )}
               <button onClick={() => (openDialog('io'), more.close())}>
                 <Icon name="io" size={14} /> Import & Export
@@ -288,6 +318,12 @@ function Transport({ r, live, tl, app, now, readonly }: { r: Rundown; live: Live
           )}
         </div>
 
+        {live.showStart && live.status !== 'idle' && (
+          <span className="live-since" title="Seit Showbeginn">
+            <span className="eyebrow">{live.status === 'ended' ? 'Dauer' : 'Live seit'}</span>
+            <span className="num">{fmtDur((live.status === 'ended' ? live.showEnd ?? now : now) - live.showStart)}</span>
+          </span>
+        )}
         <span className={`big-timer num ${timerState} ${live.status === 'paused' ? 'paused' : ''}`}>{cd ? cd.text : tl.next ? fmtDur(tl.next.duration) : '--:--'}</span>
 
         {!readonly && (
@@ -308,11 +344,11 @@ function Transport({ r, live, tl, app, now, readonly }: { r: Rundown; live: Live
               </button>
             )}
             <div className="adj">
-              <button className="ctl small" disabled={!cur} onClick={() => set((l) => L.adjust(l, -60_000))} title="Aktuellen Cue um 1 Minute kürzen (−)">
-                −1m
+              <button className="ctl small" disabled={!cur} onClick={() => set((l) => L.adjust(l, -app.ui.step))} title={`Aktuellen Cue um ${stepLabel(app.ui.step)} kürzen (−)`}>
+                −{stepLabel(app.ui.step)}
               </button>
-              <button className="ctl small" disabled={!cur} onClick={() => set((l) => L.adjust(l, 60_000))} title="Aktuellen Cue um 1 Minute verlängern (+)">
-                +1m
+              <button className="ctl small" disabled={!cur} onClick={() => set((l) => L.adjust(l, app.ui.step))} title={`Aktuellen Cue um ${stepLabel(app.ui.step)} verlängern (+)`}>
+                +{stepLabel(app.ui.step)}
               </button>
               <button className="ctl small chev" disabled={!cur} onClick={adj.open} aria-label="Zeit genau anpassen" title="Zeit genau anpassen">
                 <Icon name="chevron" size={14} />
@@ -344,7 +380,15 @@ function Transport({ r, live, tl, app, now, readonly }: { r: Rundown; live: Live
 
       {adj.anchor && (
         <Popover anchor={adj.anchor} onClose={adj.close} align="end" className="menu">
-          <AdjustPanel apply={(d) => set((l) => L.adjust(l, d))} adjustNow={live.adjust} />
+          <AdjustPanel
+            apply={(d) => set((l) => L.adjust(l, d))}
+            adjustNow={live.adjust}
+            remaining={cur ? Math.max(0, cur.remaining) : 0}
+            duration={cur ? cur.duration : 0}
+            setRemaining={(ms) => set((l) => L.setRemaining(r, l, ms, clockNow()))}
+            setDuration={(ms) => set((l) => L.setDuration(r, l, ms))}
+            step={app.ui.step}
+          />
         </Popover>
       )}
       {msg.anchor && (
@@ -357,7 +401,26 @@ function Transport({ r, live, tl, app, now, readonly }: { r: Rundown; live: Live
   );
 }
 
-function AdjustPanel({ apply, adjustNow }: { apply: (delta: number) => void; adjustNow: number }) {
+export const stepLabel = (ms: number) => (ms < 60_000 ? `${ms / 1000}s` : `${ms / 60_000}m`);
+const STEPS = [10_000, 30_000, 60_000, 300_000, 600_000];
+
+function AdjustPanel({
+  apply,
+  adjustNow,
+  remaining,
+  duration,
+  setRemaining,
+  setDuration,
+  step,
+}: {
+  apply: (delta: number) => void;
+  adjustNow: number;
+  remaining: number;
+  duration: number;
+  setRemaining: (ms: number) => void;
+  setDuration: (ms: number) => void;
+  step: number;
+}) {
   const [custom, setCustom] = useState('');
   const steps: [number, string][] = [
     [10_000, '10 s'],
@@ -397,6 +460,69 @@ function AdjustPanel({ apply, adjustNow }: { apply: (delta: number) => void; adj
         </button>
         <button className="btn small" disabled={v == null} onClick={() => v != null && apply(v)}>
           +
+        </button>
+      </div>
+      <div className="adj-set">
+        <label className="set-field">
+          <span className="eyebrow">Restzeit setzen</span>
+          <DurationInput value={Math.round(remaining / 1000) * 1000} onChange={setRemaining} label="Restzeit setzen" className="wide" />
+        </label>
+        <label className="set-field">
+          <span className="eyebrow">Dauer (nur live)</span>
+          <DurationInput value={duration} onChange={setDuration} label="Dauer für diesen Durchlauf" className="wide" />
+        </label>
+      </div>
+      <div className="set-field">
+        <span className="eyebrow">Schrittweite der ±-Knöpfe</span>
+        <div className="seg" role="radiogroup" aria-label="Schrittweite">
+          {STEPS.map((ms) => (
+            <button key={ms} role="radio" aria-checked={step === ms} className={step === ms ? 'on' : ''} onClick={() => store.setUi({ step: ms })}>
+              {stepLabel(ms)}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Ansicht ---------- */
+function ViewMenu({ app }: { app: AppState }) {
+  const ui = app.ui;
+  return (
+    <div className="menu-body">
+      <div className="set-field">
+        <span className="eyebrow">Darstellung</span>
+        <div className="seg" role="radiogroup" aria-label="Darstellung">
+          {(
+            [
+              ['system', 'Wie System'],
+              ['light', 'Hell'],
+              ['dark', 'Dunkel'],
+            ] as const
+          ).map(([id, l]) => (
+            <button key={id} role="radio" aria-checked={ui.theme === id} className={ui.theme === id ? 'on' : ''} onClick={() => store.setUi({ theme: id })}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Toggle id="v-compact" on={ui.compact} onChange={(v) => store.setUi({ compact: v })}>
+        Kompakte Zeilen
+      </Toggle>
+      <Toggle id="v-hidedone" on={ui.hideDone} onChange={(v) => store.setUi({ hideDone: v })}>
+        Erledigte Cues ausblenden
+      </Toggle>
+      <Toggle id="v-follow" on={ui.follow} onChange={(v) => store.setUi({ follow: v })}>
+        Mitlaufen
+        <small>scrollt beim Weiterschalten zum laufenden Cue</small>
+      </Toggle>
+      <div className="seg" role="radiogroup" aria-label="Position beim Mitlaufen">
+        <button role="radio" aria-checked={ui.followPos === 'top'} className={ui.followPos === 'top' ? 'on' : ''} onClick={() => store.setUi({ followPos: 'top' })}>
+          Laufender Cue oben
+        </button>
+        <button role="radio" aria-checked={ui.followPos === 'center'} className={ui.followPos === 'center' ? 'on' : ''} onClick={() => store.setUi({ followPos: 'center' })}>
+          in der Mitte
         </button>
       </div>
     </div>

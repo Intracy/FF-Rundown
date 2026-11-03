@@ -1,7 +1,7 @@
 {
   "name": "taktgeber",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "Rundown- und Show-Timing-Tool für Live-Produktionen",
   "type": "module",
   "scripts": {

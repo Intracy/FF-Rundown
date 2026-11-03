@@ -1,0 +1,17 @@
+{
+  "name": "Taktgeber",
+  "short_name": "Taktgeber",
+  "description": "Rundown- und Show-Timing für Live-Produktionen",
+  "lang": "de",
+  "start_url": "/#ablauf",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101317",
+  "theme_color": "#101317",
+  "icons": [
+    { "src": "/img/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/img/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/img/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

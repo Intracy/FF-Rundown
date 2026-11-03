@@ -55,6 +55,8 @@ export interface Cue {
   autoStart: boolean;
   skip: boolean;
   color: Tint;
+  /** Freie Farbe (Hex), überschreibt color */
+  customColor?: string;
   cells: Record<string, string>;
   script: string;
   subTimers: SubTimer[];
@@ -65,6 +67,10 @@ export interface Heading {
   id: string;
   title: string;
   color: Tint;
+  /** Freie Farbe (Hex), überschreibt color */
+  customColor?: string;
+  /** true = Block-Ende: schließt die Gruppe der vorherigen Überschrift */
+  end?: boolean;
 }
 
 export type Item = Cue | Heading;

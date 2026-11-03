@@ -22,11 +22,21 @@ export type SyncMsg =
   | { t: 'event'; event: EventFolder; from?: string }
   | { t: 'delete'; id: string; at: number; from?: string };
 
+export type Role = 'viewer' | 'operator' | 'editor' | 'admin';
+export interface UserInfo {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  legacy?: boolean;
+}
+export type AuthMode = 'setup' | 'login' | 'password' | 'share';
+
 interface Handlers {
-  onInit(state: ServerState, share: ShareInfo | null): void;
+  onInit(state: ServerState, share: ShareInfo | null, user: UserInfo | null, role: Role, version: string): void;
   onMsg(m: SyncMsg): void;
   onStatus(s: SyncStatus, peers: number): void;
-  onAuthRequired(error: string): void;
+  onAuthRequired(mode: AuthMode, error: string): void;
 }
 
 const AUTH_KEY = 'taktgeber:auth';
@@ -89,16 +99,47 @@ class Sync {
     return Date.now() + this.offset;
   }
 
-  login(password: string) {
-    this.auth = password;
+  /** Zugangsdaten setzen (Sitzungstoken oder Admin-Passwort) und neu anmelden */
+  setAuth(cred: string) {
+    this.auth = cred;
     try {
-      localStorage.setItem(AUTH_KEY, password);
+      if (cred) localStorage.setItem(AUTH_KEY, cred);
+      else localStorage.removeItem(AUTH_KEY);
     } catch {
       /* egal */
     }
     if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'hello', auth: this.auth, share: this.shareToken }));
     else this.connect();
   }
+
+  login(password: string) {
+    this.setAuth(password);
+  }
+
+  /** HTTP-Aufruf an den eigenen Server mit Anmeldung, wirft bei Fehlern eine verständliche Meldung */
+  async api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+    let res: Response;
+    try {
+      res = await fetch(path, { method, headers: this.headers(), body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch {
+      throw new Error('Der Server ist nicht erreichbar.');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Fehler ${res.status}`);
+    return data as T;
+  }
+
+  /** Mit E-Mail und Passwort anmelden bzw. erstes Admin-Konto anlegen */
+  async signIn(kind: 'login' | 'setup', body: { email: string; password: string; name?: string }) {
+    const r = await this.api<{ token: string }>('POST', `/api/auth/${kind}`, body);
+    this.setAuth(r.token);
+  }
+
+  signOut() {
+    this.setAuth('');
+  }
+
+  version = '';
 
   /** Header für HTTP-Aufrufe an den eigenen Server */
   headers(): Record<string, string> {
@@ -141,10 +182,11 @@ class Sync {
       if (m.t === 'init') {
         if (this.bestRtt === Infinity) this.offset = m.now - Date.now();
         this.everOnline = true;
+        if (!this.version) this.version = m.version ?? '';
         this.setStatus('online', m.peers ?? 1);
-        this.h?.onInit(m.state, m.share ?? null);
+        this.h?.onInit(m.state, m.share ?? null, m.user ?? null, m.role ?? 'admin', m.version ?? '');
       } else if (m.t === 'auth-required') {
-        this.h?.onAuthRequired(m.error ?? '');
+        this.h?.onAuthRequired(m.mode ?? 'password', m.error ?? '');
       } else if (m.t === 'pong') {
         const rtt = Date.now() - m.c;
         if (rtt <= this.bestRtt) {

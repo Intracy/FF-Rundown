@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Rundown, RundownStatus, STATUS_LABEL, isCue } from '../types';
-import { fmtDate } from '../time';
+import { fmtDate, todayISO } from '../time';
 import { AppState, store } from '../store';
 import { blankRundown, makeSample } from '../sample';
 import { cloneRundown, newEvent } from '../model';
@@ -15,6 +15,21 @@ type Sort = 'date' | 'name' | 'updated';
 export function Dashboard({ app, open }: { app: AppState; open: (id: string) => void }) {
   const [tab, setTab] = useState<Tab>('rundowns');
   const [sort, setSort] = useState<Sort>('date');
+  const [layout, setLayout] = useState<'list' | 'tiles'>(() => {
+    try {
+      return (localStorage.getItem('taktgeber:dash-layout') as 'list' | 'tiles') || 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const setLay = (l: 'list' | 'tiles') => {
+    setLayout(l);
+    try {
+      localStorage.setItem('taktgeber:dash-layout', l);
+    } catch {
+      /* egal */
+    }
+  };
   const [q, setQ] = useState('');
   const [eventId, setEventId] = useState<string | null>(null);
   const create = usePopover();
@@ -105,6 +120,14 @@ export function Dashboard({ app, open }: { app: AppState; open: (id: string) => 
                 </button>
               ))}
             </div>
+            <div className="seg" role="radiogroup" aria-label="Darstellung">
+              <button role="radio" aria-checked={layout === 'list'} className={layout === 'list' ? 'on' : ''} onClick={() => setLay('list')}>
+                Liste
+              </button>
+              <button role="radio" aria-checked={layout === 'tiles'} className={layout === 'tiles' ? 'on' : ''} onClick={() => setLay('tiles')}>
+                Kacheln
+              </button>
+            </div>
             <label className="sort">
               <span className="eyebrow">Sortieren</span>
               <select className="text-input" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
@@ -115,11 +138,20 @@ export function Dashboard({ app, open }: { app: AppState; open: (id: string) => 
             </label>
           </div>
 
-          <ul className="rd-rows">
-            {list.map((r) => (
-              <RundownRow key={r.id} r={r} app={app} open={open} />
-            ))}
-          </ul>
+          {groupRundowns(list, app, tab === 'rundowns').map((g) => (
+            <section key={g.id} className="rd-group" aria-label={g.label}>
+              {g.label && (
+                <h2 className={`dash-h grp-${g.id}`}>
+                  {g.label} <span className="hint small">{g.items.length}</span>
+                </h2>
+              )}
+              <ul className={layout === 'tiles' ? 'rd-tiles' : 'rd-rows'}>
+                {g.items.map((r) => (
+                  <RundownRow key={r.id} r={r} app={app} open={open} tile={layout === 'tiles'} />
+                ))}
+              </ul>
+            </section>
+          ))}
           {!list.length && (
             <p className="empty-note">
               {tab === 'templates'
@@ -212,18 +244,46 @@ function EventHeader({ app, id, back }: { app: AppState; id: string; back: () =>
   );
 }
 
-function RundownRow({ r, app, open }: { r: Rundown; app: AppState; open: (id: string) => void }) {
+/** Live / Heute / Kommend / Vergangen */
+function groupRundowns(list: Rundown[], app: AppState, byDate: boolean) {
+  if (!byDate) return [{ id: 'all', label: '', items: list }];
+  const today = todayISO();
+  const live = list.filter((r) => ['running', 'paused'].includes(app.live[r.id]?.status ?? ''));
+  const rest = list.filter((r) => !live.includes(r));
+  const groups = [
+    { id: 'live', label: 'Live', items: live },
+    { id: 'today', label: 'Heute', items: rest.filter((r) => r.date === today) },
+    { id: 'soon', label: 'Kommend', items: rest.filter((r) => r.date > today) },
+    { id: 'past', label: 'Vergangen', items: rest.filter((r) => r.date < today).reverse() },
+  ];
+  return groups.filter((g) => g.items.length);
+}
+
+/** „heute“, „morgen“, „in 3 Tagen“, „vor 2 Tagen“ */
+export function relDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const [ty, tm, td] = todayISO().split('-').map(Number);
+  const diff = Math.round((Date.UTC(y, m - 1, d) - Date.UTC(ty, tm - 1, td)) / 86_400_000);
+  if (diff === 0) return 'heute';
+  if (diff === 1) return 'morgen';
+  if (diff === -1) return 'gestern';
+  return diff > 0 ? `in ${diff} Tagen` : `vor ${-diff} Tagen`;
+}
+
+function RundownRow({ r, app, open, tile }: { r: Rundown; app: AppState; open: (id: string) => void; tile?: boolean }) {
   const menu = usePopover();
   const [confirm, setConfirm] = useState(false);
   const st = app.live[r.id]?.status ?? 'idle';
   const cues = r.items.filter((i) => isCue(i) && !i.skip).length;
   const set = (patch: Partial<Rundown>) => store.updateRundown(r.id, (x) => ({ ...x, ...patch }));
   return (
-    <li className="rd-row">
+    <li className={tile ? 'rd-tile' : 'rd-row'}>
       <button className="rd-open" onClick={() => open(r.id)}>
         <span className={`dot st-${st}`} aria-hidden="true" />
         <span className="rd-name">{r.title || 'Ohne Titel'}</span>
-        <span className="rd-date num">{fmtDate(r.date)}</span>
+        <span className="rd-date num">
+          {fmtDate(r.date)} <span className="hint small">· {relDay(r.date)}</span>
+        </span>
         <span className="hint small">{cues} Cues</span>
         {r.eventId && app.events[r.eventId] && <span className="hint small">{app.events[r.eventId].name}</span>}
         <span className={`status-pill s-${r.status}`}>{r.isTemplate ? 'Vorlage' : STATUS_LABEL[r.status]}</span>

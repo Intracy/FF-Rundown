@@ -84,6 +84,14 @@ function moveItems(rid: string, ids: string[], targetId: string, pos: 'before' |
   });
 }
 
+/** Letztes Element der Gruppe einer Überschrift (bis zur nächsten Überschrift) */
+function groupLastId(r: Rundown, headingId: string): string {
+  const i = r.items.findIndex((x) => x.id === headingId);
+  let last = headingId;
+  for (let j = i + 1; j < r.items.length && isCue(r.items[j]); j++) last = r.items[j].id;
+  return last;
+}
+
 /** Cue ↔ Überschrift. Beim Umwandeln eines Cues landet die Originalfassung im Papierkorb. */
 function convertItem(rid: string, id: string) {
   edit(rid, (r) => {
@@ -150,7 +158,7 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
   useEffect(() => {
     if (!follow || !live.currentId) return;
     const el = sheet.current?.querySelector<HTMLElement>(`[data-id="${live.currentId}"]`);
-    el?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    el?.scrollIntoView({ block: app.ui.followPos === 'top' ? 'start' : 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }, [live.currentId, follow]);
 
   const select = (id: string, e: React.MouseEvent) => {
@@ -170,6 +178,36 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
   const dnd = locked
     ? null
     : {
+        /** Umsortieren per Finger: Zeile unter dem Finger bestimmt das Ziel */
+        touchStart: (id: string, e: React.PointerEvent) => {
+          const ids = selected.has(id) ? r.items.filter((i) => selected.has(i.id)).map((i) => i.id) : [id];
+          const pid = e.pointerId;
+          let target: { id: string; pos: 'before' | 'after' } | null = null;
+          let moved = false;
+          const mv = (ev: PointerEvent) => {
+            if (ev.pointerId !== pid) return;
+            ev.preventDefault();
+            moved = true;
+            const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-id]');
+            if (!under?.dataset.id) return;
+            const rect = under.getBoundingClientRect();
+            target = { id: under.dataset.id, pos: ev.clientY < rect.top + rect.height / 2 ? 'before' : 'after' };
+            setDrop(target);
+            if (ev.clientY < 120) window.scrollBy(0, -12);
+            else if (ev.clientY > window.innerHeight - 140) window.scrollBy(0, 12);
+          };
+          const up = (ev: PointerEvent) => {
+            if (ev.pointerId !== pid) return;
+            window.removeEventListener('pointermove', mv);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+            if (moved && target) moveItems(r.id, ids, target.id, target.pos);
+            setDrop(null);
+          };
+          window.addEventListener('pointermove', mv, { passive: false });
+          window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
+        },
         start: (id: string, e: React.DragEvent) => {
           dragIds.current = selected.has(id) ? r.items.filter((i) => selected.has(i.id)).map((i) => i.id) : [id];
           e.dataTransfer.effectAllowed = 'move';
@@ -205,7 +243,7 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
     <>
       {selected.size > 0 && !readonly && <BatchBar r={r} selected={selected} clear={() => setSelected(new Set())} selectAll={() => setSelected(new Set(r.items.map((i) => i.id)))} locked={locked} />}
       <div className="sheet" ref={sheet}>
-        <div className={`grid hl-${r.settings.highlight}`} style={{ ['--cols' as string]: cols }} role="table" aria-label="Ablauf" data-flash={flashId ?? undefined}>
+        <div className={`grid hl-${r.settings.highlight} ${app.ui.compact ? 'compact' : ''} ${app.ui.hideDone ? 'hide-done' : ''}`} style={{ ['--cols' as string]: cols }} role="table" aria-label="Ablauf" data-flash={flashId ?? undefined}>
           {flashId && <style>{`.grid[data-flash="${flashId}"] [data-id="${flashId}"]{animation:row-flash 1.6s ease-out}`}</style>}
           <div className="row head" role="row">
             <div className="c" role="columnheader" aria-label="Auswahl" />
@@ -312,6 +350,9 @@ export function RundownView({ rundown: r, live, tl, now, locked, follow, readonl
             <button className="btn ghost" onClick={() => insertAfter(r.id, null, [newHeading()])}>
               <Icon name="plus" /> Überschrift
             </button>
+            <button className="btn ghost" onClick={() => insertAfter(r.id, null, [{ ...newHeading('Ende'), end: true }])} title="Schließt die Gruppe der Überschrift darüber">
+              <Icon name="plus" /> Block-Ende
+            </button>
           </div>
         )}
         {r.items.length === 0 && <p className="empty-note">Noch leer. Lege mit „+ Cue“ den ersten Programmpunkt an oder importiere eine CSV.</p>}
@@ -410,6 +451,7 @@ function JumpBox({ r, tl, onPick, onClose }: { r: Rundown; tl: Timeline; onPick:
 }
 
 type Dnd = null | {
+  touchStart: (id: string, e: React.PointerEvent) => void;
   start: (id: string, e: React.DragEvent) => void;
   over: (id: string, e: React.DragEvent) => void;
   drop: (e: React.DragEvent) => void;
@@ -425,6 +467,9 @@ function Grip({ id, selected, onSelect, dnd, label, readonly }: { id: string; se
         draggable={!!dnd}
         onDragStart={(e) => dnd?.start(id, e)}
         onDragEnd={() => dnd?.end()}
+        onPointerDown={(e) => {
+          if (dnd && e.pointerType !== 'mouse') dnd.touchStart(id, e);
+        }}
         onClick={(e) => onSelect(id, e)}
         aria-pressed={selected}
         aria-label={`${label} auswählen (Umschalt für Bereich, ziehen zum Verschieben)`}
@@ -473,6 +518,7 @@ const CueRow = memo(function CueRow({
   dropCls: string;
 }) {
   const [showScript, setShowScript] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const menu = usePopover();
   const set = (patch: Partial<Cue>, key?: string) => patchItem(r.id, cue.id, patch, key);
   const status = t.status;
@@ -485,7 +531,12 @@ const CueRow = memo(function CueRow({
 
   return (
     <>
-      <div className={`row cue st-${status} ${selected ? 'sel' : ''} ${dropCls}`} data-id={cue.id} data-tint={cue.color || undefined} role="row" onDragOver={(e) => dnd?.over(cue.id, e)} onDrop={(e) => dnd?.drop(e)}>
+      <div
+        className={`row cue st-${status} ${selected ? 'sel' : ''} ${expanded ? 'expanded' : ''} ${dropCls}`}
+        data-id={cue.id}
+        data-tint={cue.customColor ? 'custom' : cue.color || undefined}
+        style={cue.customColor ? ({ '--tint': cue.customColor } as React.CSSProperties) : undefined}
+        role="row" onDragOver={(e) => dnd?.over(cue.id, e)} onDrop={(e) => dnd?.drop(e)}>
         <Grip id={cue.id} selected={selected} onSelect={onSelect} dnd={dnd} label={cue.title || 'Cue'} readonly={readonly} />
 
         <div className="c c-num">
@@ -565,6 +616,9 @@ const CueRow = memo(function CueRow({
             />
           </div>
           <div className="row-tools">
+            <button className={`icon-btn expand-btn ${expanded ? 'on' : ''}`} aria-expanded={expanded} aria-label={expanded ? 'Leere Felder ausblenden' : 'Alle Felder zeigen'} title="Alle Felder" onClick={() => setExpanded((x) => !x)}>
+              <Icon name="chevron" size={15} />
+            </button>
             <button className={`icon-btn ${cue.script ? 'has' : ''} ${showScript ? 'on' : ''}`} title="Skript / Prompter-Text" aria-label="Skript ein- oder ausblenden" aria-expanded={showScript} onClick={() => setShowScript((s) => !s)}>
               <Icon name="script" size={15} />
             </button>
@@ -577,7 +631,7 @@ const CueRow = memo(function CueRow({
         </div>
 
         {cols.map((col) => (
-          <div className="c c-cell" key={col.id}>
+          <div className={`c c-cell ${(cue.cells[col.id] ?? '') === '' ? 'is-empty' : ''}`} key={col.id} data-label={col.name}>
             {col.type === 'select' ? (
               <SelectCell col={col} value={cue.cells[col.id] ?? ''} readOnly={locked} onChange={(v) => setCell(r.id, cue.id, col.id, v)} />
             ) : (
@@ -716,7 +770,7 @@ function SubTimerChip({ r, cue, t, live, now, started, locked, readonly }: { r: 
 }
 
 function CueMenu({ r, cue, status, isFirst, locked, close }: { r: Rundown; cue: Cue; status: CueTime['status']; isFirst: boolean; locked: boolean; close: () => void }) {
-  const set = (patch: Partial<Cue>) => patchItem(r.id, cue.id, patch);
+  const set = (patch: Partial<Cue>, key?: string) => patchItem(r.id, cue.id, patch, key);
   const isHard = cue.startMode === 'hard';
   return (
     <div className="menu-body">
@@ -776,7 +830,7 @@ function CueMenu({ r, cue, status, isFirst, locked, close }: { r: Rundown; cue: 
 
           <div className="menu-sec">
             <span className="eyebrow">Farbe</span>
-            <Swatches value={cue.color} onPick={(c) => set({ color: c })} />
+            <Swatches value={cue.color} custom={cue.customColor} onPick={(c) => set({ color: c, customColor: undefined })} onCustom={(hex) => set({ customColor: hex }, `cc:${cue.id}`)} />
           </div>
 
           <div className="menu-list">
@@ -883,10 +937,19 @@ const HeadingRow = memo(function HeadingRow({
 }) {
   const menu = usePopover();
   return (
-    <div className={`row heading ${selected ? 'sel' : ''} ${g?.elapsed != null ? 'live' : ''} ${dropCls}`} data-id={h.id} data-tint={h.color || undefined} role="row" onDragOver={(e) => dnd?.over(h.id, e)} onDrop={(e) => dnd?.drop(e)}>
+    <div
+      className={`row heading ${h.end ? 'block-end' : ''} ${selected ? 'sel' : ''} ${g?.elapsed != null ? 'live' : ''} ${dropCls}`}
+      data-id={h.id}
+      data-tint={h.customColor ? 'custom' : h.color || undefined}
+      style={h.customColor ? ({ '--tint': h.customColor } as React.CSSProperties) : undefined}
+      role="row"
+      onDragOver={(e) => dnd?.over(h.id, e)}
+      onDrop={(e) => dnd?.drop(e)}
+    >
       <Grip id={h.id} selected={selected} onSelect={onSelect} dnd={dnd} label={h.title || 'Überschrift'} readonly={readonly} />
       <div className="heading-body">
-        <input className="heading-input" value={h.title} readOnly={locked} aria-label="Überschrift" onChange={(e) => patchItem(r.id, h.id, { title: e.target.value }, `h:${h.id}`)} />
+        {h.end && <span className="end-tag">Block-Ende</span>}
+        <input className="heading-input" value={h.title} readOnly={locked} aria-label={h.end ? 'Bezeichnung des Block-Endes' : 'Überschrift'} onChange={(e) => patchItem(r.id, h.id, { title: e.target.value }, `h:${h.id}`)} />
         {g && g.count > 0 && (
           <span className="heading-meta">
             <span>
@@ -918,7 +981,7 @@ const HeadingRow = memo(function HeadingRow({
           <div className="menu-body">
             <div className="menu-sec">
               <span className="eyebrow">Farbe</span>
-              <Swatches value={h.color} onPick={(c) => patchItem(r.id, h.id, { color: c })} />
+              <Swatches value={h.color} custom={h.customColor} onPick={(c) => patchItem(r.id, h.id, { color: c, customColor: undefined })} onCustom={(hex) => patchItem(r.id, h.id, { customColor: hex }, `hc:${h.id}`)} />
             </div>
             <div className="menu-list">
               <button onClick={() => (insertAfter(r.id, h.id, [newCue()]), menu.close())}>
@@ -930,6 +993,14 @@ const HeadingRow = memo(function HeadingRow({
               <button onClick={() => (convertItem(r.id, h.id), menu.close())}>
                 <Icon name="auto" size={14} /> In Cue umwandeln
               </button>
+              <button onClick={() => (patchItem(r.id, h.id, { end: !h.end }), menu.close())}>
+                <Icon name="auto" size={14} /> {h.end ? 'In Überschrift umwandeln' : 'In Block-Ende umwandeln'}
+              </button>
+              {!h.end && (
+                <button onClick={() => (insertAfter(r.id, groupLastId(r, h.id), [{ ...newHeading(`Ende ${h.title}`.trim()), end: true, color: h.color, customColor: h.customColor }]), menu.close())}>
+                  <Icon name="plus" size={14} /> Block-Ende hinter die Gruppe setzen
+                </button>
+              )}
               <button className="danger" onClick={() => (removeItems(r.id, new Set([h.id])), menu.close())}>
                 <Icon name="trash" size={14} /> Überschrift löschen
               </button>

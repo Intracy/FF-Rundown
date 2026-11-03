@@ -9,6 +9,7 @@ import { cloneRundown, cueLabel } from '../model';
 import { fromCsv, fromJson, toCsv } from '../csv';
 import { sync } from '../sync';
 import { ClockInput, DurationInput, Icon, Toggle, copyText, resolveVars } from './common';
+import { QrCode } from './Account';
 
 const edit = (rid: string, fn: (r: Rundown) => Rundown, key?: string) => store.updateRundown(rid, fn, key);
 
@@ -479,6 +480,7 @@ export function ShareDialog({ r, onClose }: { r: Rundown; onClose: () => void })
   const [mode, setMode] = useState<'view' | 'edit'>('view');
   const [cols, setCols] = useState<string[]>(r.columns.map((c) => c.id));
   const [code, setCode] = useState<{ token: string; code: string; expires: number } | null>(null);
+  const [qrFor, setQrFor] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [, tick] = useState(0);
@@ -565,10 +567,14 @@ export function ShareDialog({ r, onClose }: { r: Rundown; onClose: () => void })
                 <button className="btn small" onClick={() => makeCode(s.token)}>
                   Schnellzugriffscode
                 </button>
+                <button className="btn small" aria-pressed={qrFor === s.token} onClick={() => setQrFor(qrFor === s.token ? null : s.token)}>
+                  QR-Code
+                </button>
                 <button className="btn small ghost danger" onClick={() => revoke(s.token)}>
                   Deaktivieren
                 </button>
               </div>
+              {qrFor === s.token && <QrCode text={linkFor(s.token)} label={`${r.title} ${s.mode === 'view' ? 'Ansicht' : 'Bearbeiten'}`} />}
               {code?.token === s.token && (
                 <div className="quick-code">
                   {left > 0 ? (

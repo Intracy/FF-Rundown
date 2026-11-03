@@ -256,12 +256,25 @@ export function ClockInput({ value, onChange, readOnly, className = '', label, s
 }
 
 /* ---------- Farbwahl ---------- */
-export function Swatches({ value, onPick }: { value: Tint; onPick: (t: Tint) => void }) {
+export function Swatches({ value, onPick, custom, onCustom }: { value: Tint; onPick: (t: Tint) => void; custom?: string; onCustom?: (hex: string) => void }) {
   return (
     <div className="swatches" role="radiogroup" aria-label="Farbe">
       {TINTS.map((t) => (
-        <button key={t.id || 'none'} type="button" role="radio" aria-checked={value === t.id} title={t.label} className={`swatch tint-${t.id || 'none'} ${value === t.id ? 'on' : ''}`} onClick={() => onPick(t.id)} />
+        <button
+          key={t.id || 'none'}
+          type="button"
+          role="radio"
+          aria-checked={!custom && value === t.id}
+          title={t.label}
+          className={`swatch tint-${t.id || 'none'} ${!custom && value === t.id ? 'on' : ''}`}
+          onClick={() => onPick(t.id)}
+        />
       ))}
+      {onCustom && (
+        <label className={`swatch custom ${custom ? 'on' : ''}`} title="Eigene Farbe" style={custom ? { background: custom } : undefined}>
+          <input type="color" aria-label="Eigene Farbe" value={custom || '#888888'} onChange={(e) => onCustom(e.target.value)} />
+        </label>
+      )}
     </div>
   );
 }

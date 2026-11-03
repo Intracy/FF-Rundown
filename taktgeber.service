@@ -1,0 +1,17 @@
+[Unit]
+Description=Taktgeber – Rundown- und Show-Timing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=taktgeber
+WorkingDirectory=/opt/taktgeber
+EnvironmentFile=-/opt/taktgeber/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/taktgeber/server/index.mjs
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
