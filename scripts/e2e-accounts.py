@@ -183,7 +183,7 @@ async def main():
               g.dispatchEvent(ev('pointermove', ty));
               g.dispatchEvent(ev('pointerup', ty));
             }""",
-            [gb['x'] + gb['width'] / 2, gb['y'] + gb['height'] / 2, target['y'] + target['height'] * 0.7],
+            [gb['x'] + gb['width'] / 2, gb['y'] + gb['height'] / 2, target['y'] + target['height'] * 0.56],
         )
         await M.wait_for_timeout(300)
         after = await M.locator('.row.cue .title-input').evaluate_all('els => els.map(e => e.value)')

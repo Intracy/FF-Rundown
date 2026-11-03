@@ -117,7 +117,8 @@ export function UserMenu({ app, close, openUsers, openPassword }: { app: AppStat
 
 export const initials = (s: string) =>
   s
-    .split(/[\s@.]+/)
+    .replace(/\(.*?\)/g, '')
+    .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
     .slice(0, 2)
     .map((x) => x[0]!.toUpperCase())
