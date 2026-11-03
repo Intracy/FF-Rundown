@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
 import './styles.css';
-import './theme-ff.css';
+import './theme-hig.css';
 
 createRoot(document.getElementById('root')!).render(<App />);
 

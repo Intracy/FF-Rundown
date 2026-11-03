@@ -60,6 +60,18 @@ Welche Funktionen einer typischen Rundown-Software abgedeckt sind und wie sie ge
 - Als App installierbar (PWA), Hinweis „Neue Version verfügbar“, Start- und Installationsskripte für Mac, Linux/Raspberry Pi und Windows
 - Import aller Daten aus FF Rundown inkl. Benutzern und Companion-Tokens
 
+## Design
+
+Die Oberfläche folgt den [Apple Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/) (Designschicht `src/theme-hig.css`):
+
+- Systemfarben und semantische Farben (Label, gruppierte Hintergründe, Trenner, Füllungen) für Hell, Dunkel und „Kontrast erhöhen“; Text in Akzentfarbe nutzt die kontraststärkere Variante
+- Systemschrift des Geräts mit Ziffern fester Breite, Textstile nach Dynamic Type (dicht am Desktop, Standardgröße auf Touch-Geräten)
+- Ablauf und Dialoge als gruppierte Listen mit Trennlinien, Bedienelemente als Segmentsteuerung, Schalter und Kapsel-Knöpfe; nur „Nächster“ ist farbig gefüllt
+- Durchscheinendes Material (Unschärfe) nur in der Steuerebene: Kopf, Transport, Fußleiste, Menüs
+- 44 × 44 pt Trefferfläche auf Touch-Geräten, sichtbarer Tastaturfokus
+- Berücksichtigt „Transparenz reduzieren“, „Kontrast erhöhen“ und „Bewegung reduzieren“
+- Bühnen-Timer und Prompter bleiben dunkel
+
 ## Starten
 
 ```bash
