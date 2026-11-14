@@ -1516,3 +1516,6 @@ textarea.script-in { overflow: hidden; }
 .portal-note > .ico { color: var(--accent-2); flex: none; margin-top: 2px; }
 .portal-note span { color: var(--text-2); }
 .pop a.mi { text-decoration: none; color: inherit; }
+
+/* Benutzer und System: gleiche Breite wie die Startseite (.ov-page), damit der Abstand vom Rand überall gleich ist */
+.page.page-narrow { max-width: 1500px; }
