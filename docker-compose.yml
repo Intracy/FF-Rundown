@@ -10,6 +10,9 @@ services:
       - TZ=Europe/Berlin
       # Hinter einem Reverse-Proxy mit HTTPS (Internetzugriff) auf true setzen:
       - TRUST_PROXY=false
+      # Optional mit dem Portal „FrankenFinals Broadcast“ verbinden (Anmeldung dann über das Portal):
+      # - PORTAL_URL=https://broadcast.example.de
+      # - PORTAL_SSO_SECRET=<openssl rand -hex 32, identisch zu RUNDOWN_SSO_SECRET im Portal>
     volumes:
       - ./data:/data
       # Programmdateien direkt aus diesem Ordner verwenden:

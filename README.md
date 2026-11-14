@@ -242,6 +242,39 @@ Dieselben Daten gibt es für angemeldete Benutzer (Cookie oder `Authorization: B
 | `SMTP_FROM` · `SMTP_FROM_NAME` | `SMTP_USER` · `FF Rundown` | Absender |
 | `APP_URL` | – | Adresse der App für Links in Mails, z. B. `https://rundown.example.de` |
 | `AUDIT_DAYS` | `90` | Wie viele Tage das Protokoll (System → Protokoll) aufbewahrt wird, mindestens 7 |
+| `PORTAL_URL` | – | Adresse des Portals „FrankenFinals Broadcast“, z. B. `https://broadcast.example.de` (siehe unten) |
+| `PORTAL_SSO_SECRET` | – | Gemeinsamer Schlüssel mit dem Portal (mind. 32 Zeichen). Leer = FF Rundown läuft allein |
+| `PORTAL_SESSION_HOURS` | `12` | Wie lange eine Anmeldung über das Portal gilt |
+
+## Mit dem Portal „FrankenFinals Broadcast“ verbinden (optional)
+
+FF Rundown läuft weiterhin **allein** mit eigenen Konten. Optional lässt es sich als Modul an das Portal
+[FrankenFinals Broadcast](https://github.com/FrizBok/FF-Broadcast-Portal) hängen – dann gibt es nur noch einen Login:
+
+| FF Rundown | Portal |
+|---|---|
+| `PORTAL_URL=https://broadcast.example.de` | `RUNDOWN_URL=https://rundown.example.de` |
+| `PORTAL_SSO_SECRET=<schlüssel>` | `RUNDOWN_SSO_SECRET=<schlüssel>` |
+
+Schlüssel erzeugen: `openssl rand -hex 32` – auf beiden Seiten identisch eintragen, dann beide neu starten.
+
+**So funktioniert es**
+- Im Portal bekommt eine Person für „FF Rundown“ eine Rolle (Viewer, Operator, Editor, Rundown-Admin). Ein Klick auf die
+  Kachel öffnet FF Rundown mit einer signierten Eintrittskarte (60 Sekunden gültig, nur einmal nutzbar) – ohne zweites Passwort.
+- Das Konto entsteht hier beim ersten Öffnen automatisch. **Bestehende Konten werden über die E-Mail-Adresse verknüpft** und
+  behalten Freigaben und Verlauf. Rolle und Name kommen bei jedem Öffnen aus dem Portal.
+- **Gäste** aus dem Portal sind hier „extern“ und sehen nur Rundowns, die ihnen ein Rundown-Admin freigibt (Schloss-Symbol
+  bzw. „Freigaben“). Gäste erscheinen hier, sobald sie FF Rundown einmal über das Portal geöffnet haben.
+- Benutzer anlegen, Rollen ändern und Passwörter gibt es dann nur im Portal. Die Benutzerseite zeigt einen Hinweis und
+  verlinkt dorthin; Freigaben einzelner Rundowns bleiben hier.
+- Mit Passwort meldet sich nur noch der **lokale Super-Admin** an (Notfall-Zugang, „Notfall-Login“ auf der Anmeldeseite).
+  Alte Passwort-Sitzungen anderer Benutzer gelten nach dem Umstellen nicht mehr.
+- Eine Anmeldung über das Portal gilt 12 Stunden (`PORTAL_SESSION_HOURS`). Wer im Portal gesperrt wird, verliert den
+  Zugang spätestens danach.
+- Öffentliche Links (`/p/…`), Timer, Prompter und die Companion-/Overlay-API sind davon nicht betroffen.
+
+Zurück zum Alleinbetrieb: `PORTAL_SSO_SECRET` leeren und neu starten. Über das Portal entstandene Konten haben dann noch
+kein Passwort – ein Admin erzeugt ihnen unter *Benutzer* einen Einladungslink.
 
 ## Update auf eine neue Version
 
