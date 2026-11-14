@@ -6,7 +6,8 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node --no-warnings server/index.js",
-    "dev": "node --no-warnings --watch server/index.js"
+    "dev": "node --no-warnings --watch server/index.js",
+    "test": "node --no-warnings --test test/*.test.js"
   },
   "engines": {
     "node": ">=22.13"

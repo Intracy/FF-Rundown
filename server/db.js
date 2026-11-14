@@ -104,6 +104,7 @@ for (const sql of [
   "ALTER TABLE items ADD COLUMN script TEXT NOT NULL DEFAULT ''", // Skript für den Prompter
   "ALTER TABLE rundowns ADD COLUMN al_log TEXT NOT NULL DEFAULT '[]'", // Protokoll der Aufnahmeleitung (Marker, Signale, Cues)
   'ALTER TABLE users ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0', // Super-Admin (genau eine Person)
+  'ALTER TABLE users ADD COLUMN portal_sub TEXT', // Konto-ID im Portal „FrankenFinals Broadcast“ (bei Anmeldung über das Portal)
 ]) { try { db.exec(sql); } catch { /* Spalte existiert bereits */ } }
 
 /**

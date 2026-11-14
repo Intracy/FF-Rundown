@@ -141,7 +141,8 @@ function userMenu(anchor) {
       h('div', { class: 'um-who' }, h('b', null, u.name || u.email.split('@')[0]), h('span', null, u.email)),
       u.restricted ? h('span', { class: 'st-badge bk-ext' }, icon('lock'), 'Extern') : h('span', { class: `role-badge role-${u.role}` }, ROLE_LABEL[u.role])),
     h('div', { class: 'pop-sep' }),
-    h('button', { class: 'mi', onclick: () => { closePop(); changePassword(); } }, icon('key'), 'Passwort ändern'),
+    S.portal?.url ? h('a', { class: 'mi', href: S.portal.url + '/' }, icon('grid'), 'Zum Portal') : null,
+    S.portal && !u.owner ? null : h('button', { class: 'mi', onclick: () => { closePop(); changePassword(); } }, icon('key'), 'Passwort ändern'),
     can('admin') ? h('button', { class: 'mi', onclick: () => { closePop(); go('#/users'); } }, icon('users'), 'Benutzer verwalten') : null,
     can('admin') ? h('button', { class: 'mi', onclick: () => { closePop(); go('#/system'); } }, icon('database'), 'System') : null,
     h('button', { class: 'mi', onclick: () => { closePop(); document.querySelector('.topbar .theme-toggle')?.click(); } }, icon(theme() === 'dark' ? 'sun' : 'moon'), theme() === 'dark' ? 'Helles Design' : 'Dunkles Design'),
@@ -162,6 +163,7 @@ function topbar(active) {
   return h('header', { class: 'topbar' },
     brand('a', { href: '#/rundowns' }),
     h('nav', { class: 'nav' },
+      S.portal?.url ? h('a', { href: S.portal.url + '/', title: 'Zurück zur Übersicht von FrankenFinals Broadcast' }, icon('grid'), h('span', null, 'Portal')) : null,
       h('a', { href: '#/rundowns', class: active === 'rundowns' ? 'active' : '' }, icon('list'), h('span', null, 'Rundowns')),
       can('admin') ? h('a', { href: '#/users', class: active === 'users' ? 'active' : '' }, icon('users'), h('span', null, 'Benutzer')) : null,
       can('admin') ? h('a', { href: '#/system', class: active === 'system' ? 'active' : '' }, icon('database'), h('span', null, 'System')) : null),
@@ -179,7 +181,8 @@ function shell(active, ...content) {
 }
 
 async function logout() {
-  await api('POST', '/api/auth/logout').catch(() => {});
+  const r = await api('POST', '/api/auth/logout').catch(() => null);
+  if (r?.portalUrl && !S.user?.owner) { location.href = r.portalUrl + '/'; return; }
   S.user = null;
   location.hash = '#/rundowns';
   router();
@@ -235,14 +238,23 @@ function authPage(subtitle, fields, submitLabel, onSubmit, opts = {}) {
 }
 
 function viewLogin() {
-  authPage('Melde dich mit deiner E-Mail-Adresse an.', [
+  // Mit dem Portal verbunden: Anmeldung dort, hier nur der Notfall-Zugang des Super-Admins
+  if (S.portal?.login && !S.localLogin) {
+    authPage('FF Rundown ist mit dem Portal von FrankenFinals Broadcast verbunden. Melde dich dort an und öffne die Kachel „FF Rundown“.', [],
+      'Über das Portal anmelden', async () => { location.href = S.portal.login; },
+      { title: 'Anmelden', extra: h('p', { class: 'auth-forgot' }, icon('shield'), h('span', null, h('button', { class: 'link-btn', type: 'button', onclick: () => { S.localLogin = true; viewLogin(); } }, 'Notfall-Login'), ' für den Super-Admin mit Passwort')) });
+    return;
+  }
+  authPage(S.portal ? 'Notfall-Zugang: Anmeldung mit Passwort ist nur für den Super-Admin möglich.' : 'Melde dich mit deiner E-Mail-Adresse an.', [
     { name: 'email', type: 'email', 'aria-label': 'E-Mail', autocomplete: 'username', required: true },
     { name: 'password', type: 'password', 'aria-label': 'Passwort', autocomplete: 'current-password', required: true },
   ], 'Anmelden', async (v) => {
     const r = await api('POST', '/api/auth/login', v);
     S.user = r.user;
     router();
-  }, { extra: S.mail
+  }, { extra: S.portal?.login
+    ? h('p', { class: 'auth-forgot' }, h('button', { class: 'link-btn', type: 'button', onclick: () => { S.localLogin = false; viewLogin(); } }, '← Über das Portal anmelden'))
+    : S.mail
     ? h('p', { class: 'auth-forgot' }, icon('key'), h('span', null, h('button', { class: 'link-btn', type: 'button', onclick: () => viewForgot(document.querySelector('input[name=email]')?.value || '') }, 'Passwort vergessen?'), ' Wir schicken dir einen Link per E-Mail.'))
     : h('p', { class: 'auth-forgot' }, icon('info'), h('span', null, h('b', null, 'Passwort vergessen?'), ' Ein Admin kann dir unter „Benutzer“ einen Link zum Zurücksetzen erzeugen.')) });
 }
@@ -309,7 +321,7 @@ function viewMustChange() {
 }
 
 function viewSetup() {
-  authPage('Willkommen! Lege das erste Admin-Konto an.', [
+  authPage(S.portal ? 'Lege den lokalen Super-Admin an. Er ist der Notfall-Zugang mit Passwort – alle anderen melden sich über das Portal an.' : 'Willkommen! Lege das erste Admin-Konto an.', [
     { name: 'name', type: 'text', 'aria-label': 'Name', autocomplete: 'name' },
     { name: 'email', type: 'email', 'aria-label': 'E-Mail', autocomplete: 'username', required: true },
     { name: 'password', type: 'password', 'aria-label': 'Passwort (mind. 8 Zeichen)', autocomplete: 'new-password', required: true, minlength: 8 },
@@ -633,8 +645,13 @@ async function viewUsers() {
     h('div', { class: 'page-head' },
       h('div', null, h('div', { class: 'label' }, 'Verwaltung'), h('h1', null, 'Benutzer'), sub),
       h('div', { class: 'page-actions' },
-        S.user.owner ? h('button', { class: 'btn', title: 'Super-Admin an eine andere Person übertragen', onclick: () => transferOwner() }, icon('shield'), h('span', { class: 'lbl' }, 'Super-Admin übertragen')) : null,
-        h('button', { class: 'btn primary', onclick: () => userForm() }, icon('plus'), 'Benutzer hinzufügen'))),
+        S.user.owner && !S.portal ? h('button', { class: 'btn', title: 'Super-Admin an eine andere Person übertragen', onclick: () => transferOwner() }, icon('shield'), h('span', { class: 'lbl' }, 'Super-Admin übertragen')) : null,
+        S.portal
+          ? (S.portal.url ? h('a', { class: 'btn primary', href: S.portal.url + '/#/benutzer' }, icon('external'), 'Im Portal verwalten') : null)
+          : h('button', { class: 'btn primary', onclick: () => userForm() }, icon('plus'), 'Benutzer hinzufügen'))),
+    S.portal ? h('div', { class: 'card portal-note' }, icon('info'), h('div', null,
+      h('b', null, 'Benutzer kommen aus dem Portal.'),
+      h('span', null, ' Konten, Rollen und Gäste verwaltest du im Portal von FrankenFinals Broadcast (Modul „FF Rundown“). Wer sich zum ersten Mal über die Kachel anmeldet, erscheint hier automatisch. Freigaben einzelner Rundowns für Gäste vergibst du weiter hier über das Schloss-Symbol oder im Rundown unter „Freigaben“.'))) : null,
     h('div', { class: 'user-tools' }, h('div', { class: 'search' }, icon('users'), search), chips),
     list,
     h('section', { class: 'card perm-card' },
@@ -668,18 +685,20 @@ async function viewUsers() {
           } catch (ex) { toast(ex.message, 'err'); e.target.value = u.role; }
         },
       }, ROLES.slice().reverse().map((r) => h('option', { value: r, selected: r === u.role }, ROLE_LABEL[r])));
+      if (S.portal && !u.owner) { sel.disabled = true; sel.title = 'Die Rolle wird im Portal festgelegt'; }
       if (u.restricted) { sel.disabled = true; sel.title = 'Externe Benutzer haben Rollen pro Rundown – siehe Schloss-Symbol'; sel.replaceChildren(h('option', null, 'pro Rundown')); sel.className = 'role-select role-viewer'; }
       else if (u.owner) { sel.disabled = true; sel.title = 'Der Super-Admin ist immer Admin'; }
       else if (me) { sel.disabled = true; sel.title = 'Die eigene Rolle kann nur ein anderer Admin ändern'; }
       const lockedOwner = u.owner && !me;
+      const viaPortal = S.portal && !u.owner; // Konto wird im Portal verwaltet
       return h('div', { class: 'user-row' },
         h('div', { class: `avatar role-${u.role}` + (u.online ? ' is-online' : '') }, initials(u)),
         h('div', { class: 'u-info' },
           h('div', { class: 'u-name' }, u.name || u.email.split('@')[0], me ? h('span', { class: 'tag' }, 'Du') : null,
-            u.owner ? h('span', { class: 'st-badge owner-badge', title: 'Super-Admin – hat immer vollen Zugriff, kann nicht gelöscht oder herabgestuft werden' }, icon('shield'), 'Super-Admin') : null,
+            u.owner ? h('span', { class: 'st-badge owner-badge', title: 'Super-Admin – hat immer vollen Zugriff, kann nicht gelöscht oder herabgestuft werden' }, icon('shield'), S.portal ? 'Super-Admin · Notfall-Zugang' : 'Super-Admin') : null,
             u.restricted ? h('span', { class: 'st-badge bk-ext', title: 'Sieht nur freigegebene Rundowns' }, icon('lock'), `Extern · ${u.share_count} ${u.share_count === 1 ? 'Rundown' : 'Rundowns'}`) : null,
             !u.restricted && u.share_count ? h('span', { class: 'st-badge', title: 'Zusätzliche Rechte in einzelnen Rundowns' }, icon('lock'), `+${u.share_count} Freigabe${u.share_count === 1 ? '' : 'n'}`) : null,
-            u.pending ? h('span', { class: 'st-badge st-upcoming', title: u.open_link ? 'Einladungslink gültig bis ' + new Date(u.open_link.expires_at).toLocaleString('de-DE') : 'Einladungslink abgelaufen – neuen erzeugen' }, icon('send'), u.open_link ? 'Einladung offen' : 'Einladung abgelaufen') : null,
+            u.pending && !viaPortal ? h('span', { class: 'st-badge st-upcoming', title: u.open_link ? 'Einladungslink gültig bis ' + new Date(u.open_link.expires_at).toLocaleString('de-DE') : 'Einladungslink abgelaufen – neuen erzeugen' }, icon('send'), u.open_link ? 'Einladung offen' : 'Einladung abgelaufen') : null,
             !u.pending && u.must_change ? h('span', { class: 'st-badge st-today', title: 'Muss beim nächsten Login ein neues Passwort festlegen' }, icon('key'), 'Temp. Passwort') : null,
             !u.pending && u.open_link ? h('span', { class: 'st-badge st-public', title: 'Reset-Link gültig bis ' + new Date(u.open_link.expires_at).toLocaleString('de-DE') }, icon('link'), 'Reset-Link aktiv') : null),
           h('div', { class: 'u-mail' }, u.email)),
@@ -688,9 +707,9 @@ async function viewUsers() {
           ? h('div', { class: 'u-last is-online', title: `${u.online_devices} ${u.online_devices === 1 ? 'Gerät' : 'Geräte'}` }, h('span', { class: 'lbl' }, 'Status'), h('span', { class: 'online-txt' }, h('i', { class: 'on-dot' }), 'Jetzt online'))
           : h('div', { class: 'u-last', title: u.last_login ? new Date(u.last_login.replace(' ', 'T') + 'Z').toLocaleString('de-DE') : '' }, h('span', { class: 'lbl' }, 'Letzter Login'), relTime(u.last_login)),
         h('div', { class: 'u-actions' },
-          h('button', { class: 'icon-btn', title: lockedOwner ? 'Den Super-Admin kann nur er selbst bearbeiten' : 'Bearbeiten', disabled: lockedOwner, onclick: () => userForm(u) }, icon('edit')),
+          viaPortal ? null : h('button', { class: 'icon-btn', title: lockedOwner ? 'Den Super-Admin kann nur er selbst bearbeiten' : 'Bearbeiten', disabled: lockedOwner, onclick: () => userForm(u) }, icon('edit')),
           u.role !== 'admin' ? h('button', { class: 'icon-btn', title: 'Rundown-Freigaben', onclick: () => userAccessModal(u, load) }, icon('lock')) : null,
-          lockedOwner ? null : h('button', { class: 'icon-btn', title: 'Zugang zurücksetzen (Reset-Link oder temporäres Passwort)', onclick: () => resetPassword(u) }, icon('key')),
+          lockedOwner || viaPortal ? null : h('button', { class: 'icon-btn', title: 'Zugang zurücksetzen (Reset-Link oder temporäres Passwort)', onclick: () => resetPassword(u) }, icon('key')),
           h('button', { class: 'icon-btn del', title: me ? 'Du kannst dich nicht selbst löschen' : u.owner ? 'Der Super-Admin kann nicht gelöscht werden' : 'Löschen', disabled: me || u.owner, onclick: async () => {
             if (!(await confirmDialog(`${u.name || u.email} (${u.email}) wird gelöscht und sofort abgemeldet.`, { title: 'Benutzer löschen?' }))) return;
             try { await api('DELETE', '/api/users/' + u.id); toast('Benutzer gelöscht', 'ok'); load(); } catch (ex) { toast(ex.message, 'err'); }
@@ -2622,7 +2641,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
   if (location.pathname.startsWith('/p/')) return router();
   try {
     const st = await api('GET', '/api/auth/status');
-    S.user = st.user; S.needsSetup = st.needsSetup; S.version = st.version; S.mail = !!st.mail;
+    S.user = st.user; S.needsSetup = st.needsSetup; S.version = st.version; S.mail = !!st.mail; S.portal = st.portal || null;
   } catch { /* offline */ }
   router();
 })();

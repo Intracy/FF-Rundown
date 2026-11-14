@@ -1510,3 +1510,9 @@ textarea.script-in { overflow: hidden; }
   .nt-row { padding: 14px 16px; }
   .au-row { padding: 10px 12px; }
 }
+
+/* Mit dem Portal verbunden: Hinweis in der Benutzerverwaltung */
+.portal-note { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; margin: 0 0 16px; line-height: 1.5; border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.portal-note > .ico { color: var(--accent-2); flex: none; margin-top: 2px; }
+.portal-note span { color: var(--text-2); }
+.pop a.mi { text-decoration: none; color: inherit; }

@@ -11,6 +11,7 @@ import * as audit from './audit.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, parseCookies, serializeCookie, ROLES, can, rank } from './auth.js';
 import { applyLiveAction, parseLive } from './live.js';
 import * as backup from './backup.js';
+import * as portal from './portal.js';
 import { liveStatus, fmtDuration, fmtCountdown, fmtTime, fmtClock, parseClock, parseDuration, computeSchedule } from '../shared/timing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -188,6 +189,7 @@ const userOut = (u) => {
     must_change: !!u.must_change,
     restricted: !!u.restricted && u.role !== 'admin',
     owner: !!u.is_owner,
+    portal: !!u.portal_sub, // über das Portal angemeldet/verwaltet
     share_count: Q.accessCount.get(u.id).n,
     pending: String(u.password_hash).startsWith(NO_PASSWORD), // Einladung noch nicht angenommen
     open_link: open ? { purpose: open.purpose, expires_at: open.expires_at } : null,
@@ -352,10 +354,48 @@ function noteFail(ip) {
   attempts.set(ip, a);
 }
 
-function setSession(req, res, u) {
-  const token = signToken({ uid: u.id, tv: u.token_version }, SECRET);
-  res.setHeader('Set-Cookie', serializeCookie(COOKIE, token, { maxAge: 30 * 24 * 3600, secure: isSecure(req) }));
+function setSession(req, res, u, ttlSec = 30 * 24 * 3600) {
+  // Über das Portal angemeldet: Sitzung kürzer (PORTAL_SESSION_HOURS), damit Sperren im Portal bald greifen
+  if (portal.portalEnabled() && u.portal_sub && !u.is_owner) ttlSec = Math.min(ttlSec, portal.PORTAL.hours * 3600);
+  const viaPortal = portal.portalEnabled() && !u.is_owner;
+  const token = signToken({ uid: u.id, tv: u.token_version, ...(viaPortal ? { pt: 1 } : {}) }, SECRET, ttlSec);
+  res.setHeader('Set-Cookie', serializeCookie(COOKIE, token, { maxAge: ttlSec, secure: isSecure(req) }));
   return token;
+}
+
+/** Im Portal-Modus werden Benutzer im Portal verwaltet – hier nur noch Freigaben und der lokale Super-Admin */
+const portalManaged = (u) => portal.portalEnabled() && !u?.is_owner;
+const PORTAL_MSG = 'Benutzer und Rollen werden im Portal von FrankenFinals Broadcast verwaltet';
+
+/* ------------------------------------------------------------------ Anmeldung über das Portal */
+function infoPage(res, status, title, text) {
+  const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const back = portal.PORTAL.url ? `<a class="btn primary" href="${esc(portal.PORTAL.url)}/">Zurück zum Portal</a>` : '';
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · FF Rundown</title>
+<link rel="stylesheet" href="/css/app.css"></head><body><div class="auth-wrap" style="grid-template-columns:1fr"><div class="auth-card" style="margin:auto;text-align:center">
+<h1 class="auth-title">${esc(title)}</h1><p>${esc(text)}</p>${back}</div></div></body></html>`);
+}
+
+function portalLogin(req, res, url) {
+  if (!portal.portalEnabled()) return infoPage(res, 503, 'Nicht eingerichtet', 'Die Anmeldung über das Portal ist auf diesem Server nicht eingerichtet (PORTAL_SSO_SECRET fehlt).');
+  const ip = clientIp(req);
+  const t = portal.verifyTicket(url.searchParams.get('ticket'));
+  if (!t) {
+    audit.log('login_fail', { ip, ok: false, detail: { reason: 'portal_ticket' } });
+    return infoPage(res, 401, 'Anmeldung abgelaufen', 'Der Link aus dem Portal ist ungültig oder abgelaufen. Öffne FF Rundown bitte erneut über die Kachel im Portal.');
+  }
+  if (!portal.firstUse(t.jti, t.exp * 1000)) return infoPage(res, 401, 'Link schon benutzt', 'Dieser Anmelde-Link wurde bereits verwendet. Öffne FF Rundown bitte erneut über die Kachel im Portal.');
+  let r;
+  try { r = portal.upsertPortalUser(t); } catch (e) { return infoPage(res, 403, 'Kein Zugriff', e.message); }
+  const u = r.user;
+  if (r.created) audit.log('user_created', { target: u.email, ip, detail: { tn: u.name, role: u.role, restricted: !!u.restricted, via: 'portal' } });
+  if (r.changed) { kickUser(u.id); notifyAccess(u.id); }
+  Q.touchLogin.run(u.id);
+  audit.log('login', { actor: u, target: u.email, ip, detail: { ua: uaShort(req), via: 'portal', role: u.restricted ? 'extern' : u.role } });
+  setSession(req, res, u);
+  res.writeHead(302, { Location: '/#/rundowns', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+  res.end();
 }
 
 /* ================================================================== API */
@@ -364,7 +404,7 @@ const BOOT_ID = randomToken(6);
 GET('/api/health', () => ({ ok: true, version: VERSION, boot: BOOT_ID }));
 
 // ---------- Auth
-GET('/api/auth/status', (req) => ({ needsSetup: Q.userCount.get().n === 0, user: req.user ? userOut(req.user) : null, version: VERSION, mail: mail.enabled() }));
+GET('/api/auth/status', (req) => ({ needsSetup: Q.userCount.get().n === 0, user: req.user ? userOut(req.user) : null, version: VERSION, mail: mail.enabled(), portal: portal.portalInfo() }));
 
 // „Passwort vergessen?“ – immer dieselbe Antwort (verrät nicht, ob es die Adresse gibt), begrenzt gegen Missbrauch
 const forgotIp = new Map(), forgotUser = new Map();
@@ -378,7 +418,7 @@ POST('/api/auth/forgot', (req) => {
   if (!EMAIL_RE.test(email)) fail(400, 'Bitte gültige E-Mail-Adresse angeben');
   const u = Q.userByEmail.get(email);
   audit.log('forgot', { target: email, ip, detail: { known: !!u } });
-  if (u && !(forgotUser.get(u.id) > now - 2 * 60000)) {
+  if (u && !portalManaged(u) && !(forgotUser.get(u.id) > now - 2 * 60000)) {
     forgotUser.set(u.id, now);
     const invite = String(u.password_hash).startsWith(NO_PASSWORD);
     const link = createResetLink(u.id, invite ? 'invite' : 'reset', invite ? 168 : 1, 'Passwort vergessen');
@@ -413,6 +453,10 @@ POST('/api/auth/login', async (req, res) => {
     audit.log('login_fail', { target: String(email || '').trim().slice(0, 200), ip, ok: false, detail: { known: !!u } });
     fail(401, 'E-Mail oder Passwort falsch');
   }
+  if (portalManaged(u)) {
+    audit.log('login_fail', { target: u.email, ip, ok: false, detail: { reason: 'portal' } });
+    fail(403, 'Bitte über das Portal von FrankenFinals Broadcast anmelden. Mit Passwort meldet sich hier nur der Super-Admin an (Notfall-Zugang).');
+  }
   attempts.delete(ip);
   Q.touchLogin.run(u.id);
   audit.log('login', { actor: u, target: u.email, ip, detail: { ua: uaShort(req) } });
@@ -422,7 +466,7 @@ POST('/api/auth/login', async (req, res) => {
 
 POST('/api/auth/logout', (req, res) => {
   res.setHeader('Set-Cookie', serializeCookie(COOKIE, '', { maxAge: 0, secure: isSecure(req) }));
-  return { ok: true };
+  return { ok: true, portalUrl: portal.portalInfo()?.url || null };
 });
 
 POST('/api/auth/password', need('viewer'), async (req, res) => {
@@ -550,6 +594,7 @@ POST('/api/users/:id/reset-link', need('admin'), async (req) => {
   const u = Q.userById.get(Number(req.params.id));
   if (!u) fail(404, 'Benutzer nicht gefunden');
   protectOwner(u, req);
+  if (portalManaged(u)) fail(400, PORTAL_MSG + ' – Passwörter gibt es dort.');
   const purpose = String(u.password_hash).startsWith(NO_PASSWORD) ? 'invite' : 'reset';
   const link = createResetLink(u.id, purpose, req.body.hours, req.user.email);
   const sent = req.body.send_mail ? await sendLinkMail(u, link, req) : {};
@@ -574,6 +619,7 @@ GET('/api/users', need('admin'), () => {
 });
 
 POST('/api/users', need('admin'), async (req) => {
+  if (portal.portalEnabled()) fail(400, PORTAL_MSG + ' – dort anlegen und das Modul „FF Rundown“ freigeben.');
   const { email, name, password, role, invite, must_change, hours, restricted } = req.body;
   if (!EMAIL_RE.test(email || '')) fail(400, 'Bitte gültige E-Mail-Adresse angeben');
   if (!ROLES.includes(role)) fail(400, 'Ungültige Rolle');
@@ -600,6 +646,7 @@ PATCH('/api/users/:id', need('admin'), async (req) => {
   const u = Q.userById.get(Number(req.params.id));
   if (!u) fail(404, 'Benutzer nicht gefunden');
   protectOwner(u, req);
+  if (portalManaged(u)) fail(400, PORTAL_MSG + '.');
   // Selbst aussperren verhindern: eigene Rolle und „extern“ nur durch einen anderen Admin
   if (u.id === req.user.id) {
     if (req.body.role !== undefined && req.body.role !== u.role) fail(400, 'Die eigene Rolle kann nur ein anderer Admin ändern');
@@ -1508,7 +1555,8 @@ const server = http.createServer(async (req, res) => {
       const p = verifyToken(token, SECRET);
       if (p) {
         const u = Q.userById.get(p.uid);
-        if (u && u.token_version === p.tv) req.user = u;
+        // Im Portal-Modus gelten für normale Benutzer nur Sitzungen aus der Portal-Anmeldung (alte Passwort-Sitzungen nicht mehr)
+        if (u && u.token_version === p.tv && (!portal.portalEnabled() || u.is_owner || p.pt)) req.user = u;
       }
       if (req.user?.must_change && !MUST_CHANGE_ALLOWED.some((x) => pathname === x || pathname.startsWith(x + '/'))) {
         fail(403, 'Bitte zuerst ein neues Passwort festlegen');
@@ -1536,6 +1584,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Methode nicht erlaubt' });
+  if (pathname === '/auth/portal') return portalLogin(req, res, url);
   for (const [re, file] of PAGES) if (re.test(pathname)) return serveFile(req, res, path.join(ROOT, 'public', file));
   if (tryStatic(req, res, pathname)) return;
   // SPA-Fallback
