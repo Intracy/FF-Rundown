@@ -163,7 +163,7 @@ function topbar(active) {
   return h('header', { class: 'topbar' },
     brand('a', { href: '#/rundowns' }),
     h('nav', { class: 'nav' },
-      S.portal?.url ? h('a', { href: S.portal.url + '/', title: 'Zurück zur Übersicht von FrankenFinals Broadcast' }, icon('grid'), h('span', null, 'Portal')) : null,
+      S.portal?.url ? h('a', { class: 'nav-portal', href: S.portal.url + '/', title: 'Zum Portal', 'aria-label': 'Zum Portal' }, icon('grid'), h('span', null, 'Portal')) : null,
       h('a', { href: '#/rundowns', class: active === 'rundowns' ? 'active' : '' }, icon('list'), h('span', null, 'Rundowns')),
       can('admin') ? h('a', { href: '#/users', class: active === 'users' ? 'active' : '' }, icon('users'), h('span', null, 'Benutzer')) : null,
       can('admin') ? h('a', { href: '#/system', class: active === 'system' ? 'active' : '' }, icon('database'), h('span', null, 'System')) : null),

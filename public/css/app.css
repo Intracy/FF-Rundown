@@ -1519,3 +1519,7 @@ textarea.script-in { overflow: hidden; }
 
 /* Benutzer und System: gleiche Breite wie die Startseite (.ov-page), damit der Abstand vom Rand überall gleich ist */
 .page.page-narrow { max-width: 1500px; }
+
+/* „Portal“ – in allen Modulen gleich: erster Menüpunkt, Kachel-Icon, Trennstrich zu den eigenen Bereichen */
+.nav a.nav-portal { position: relative; margin-right: 7px; }
+.nav a.nav-portal::after { content: ''; position: absolute; right: -5px; top: 7px; bottom: 7px; width: 1px; background: var(--border-2); }
