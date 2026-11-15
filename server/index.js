@@ -394,7 +394,7 @@ function portalLogin(req, res, url) {
   Q.touchLogin.run(u.id);
   audit.log('login', { actor: u, target: u.email, ip, detail: { ua: uaShort(req), via: 'portal', role: u.restricted ? 'extern' : u.role } });
   setSession(req, res, u);
-  res.writeHead(302, { Location: '/#/rundowns', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+  res.writeHead(302, { Location: portal.safeNext(url.searchParams.get('next')) || '/#/rundowns', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
   res.end();
 }
 
@@ -782,6 +782,45 @@ POST('/api/rundowns', needCreator, (req) => {
   });
   broadcastLobby();
   return { id };
+});
+
+// ---------- Schnittstelle für die Terminplanung (FF-Planner, Dienst-zu-Dienst; siehe server/portal.js)
+// Die Person wird über ihre E-Mail gefunden – sie muss FF Rundown also mindestens einmal geöffnet haben.
+const needPlanner = (req) => {
+  if (!portal.plannerEnabled()) fail(404, 'Schnittstelle für die Terminplanung ist nicht eingerichtet (PLANNER_API_SECRET)');
+  if (!portal.verifyPlannerAuth(req.headers.authorization)) fail(401, 'Ungültige oder fehlende Unterschrift');
+  const email = String(req.query.email || req.body.email || '').trim();
+  req.extUser = email ? db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(email) || null : null;
+};
+const extRd = (r, u) => ({ id: r.id, title: r.title, event_date: r.event_date, start_time: r.start_time, my_role: roleFor(u, r.id), path: `/#/rundown/${r.id}` });
+const extUser = (u) => (u ? { found: true, role: u.role, restricted: !!u.restricted && u.role !== 'admin', can_create: !u.restricted && can(u, 'editor') } : { found: false, can_create: false });
+
+GET('/api/ext/rundowns', needPlanner, (req) => {
+  const u = req.extUser;
+  return { user: extUser(u), rundowns: u ? Q.rundowns.all().filter((r) => roleFor(u, r.id)).map((r) => extRd(r, u)) : [] };
+});
+GET('/api/ext/rundowns/:id', needPlanner, (req) => {
+  const r = Q.rdById.get(Number(req.params.id));
+  if (!r) fail(404, 'Rundown nicht gefunden');
+  const u = req.extUser;
+  return { exists: true, ...(u && roleFor(u, r.id) ? extRd(r, u) : { id: r.id, my_role: null }) };
+});
+POST('/api/ext/rundowns', needPlanner, (req) => {
+  const u = req.extUser;
+  if (!u) fail(404, 'Diese Person hat FF Rundown noch nie geöffnet');
+  if (!extUser(u).can_create) fail(403, 'Keine Berechtigung, Rundowns anzulegen');
+  const { title, event_date, start_time } = req.body;
+  if (!String(title || '').trim()) fail(400, 'Bitte einen Titel angeben');
+  if (event_date && !DATE_RE.test(event_date)) fail(400, 'Ungültiges Datum');
+  if (start_time && !TIME_RE.test(start_time)) fail(400, 'Ungültige Startzeit');
+  const id = tx(() => {
+    const { lastInsertRowid: rid } = Q.insertRd.run(String(title).trim().slice(0, 200), event_date || null, start_time || '10:00', randomToken(), randomToken(24), u.id);
+    DEFAULT_COLUMNS.forEach((n, i) => Q.insertCol.run(rid, n, i, 1));
+    Q.insertItem.run(rid, 0, 'item', 'Programmpunkt', '', 300, '', '{}');
+    return Number(rid);
+  });
+  broadcastLobby();
+  return extRd(Q.rdById.get(id), u);
 });
 
 GET('/api/rundowns/:id', needRd('viewer'), (req) => ({ ...payload(getRundown(req.params.id)), my_role: req.rdRole }));

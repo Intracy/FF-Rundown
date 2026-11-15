@@ -245,6 +245,7 @@ Dieselben Daten gibt es für angemeldete Benutzer (Cookie oder `Authorization: B
 | `PORTAL_URL` | – | Adresse des Portals „FrankenFinals Broadcast“, z. B. `https://broadcast.example.de` (siehe unten) |
 | `PORTAL_SSO_SECRET` | – | Gemeinsamer Schlüssel mit dem Portal (mind. 32 Zeichen). Leer = FF Rundown läuft allein |
 | `PORTAL_SESSION_HOURS` | `12` | Wie lange eine Anmeldung über das Portal gilt |
+| `PLANNER_API_SECRET` | – | Schlüssel für die Terminplanung (FF-Planner), mind. 32 Zeichen – dort als `RUNDOWN_API_SECRET`. Leer = Schnittstelle aus |
 
 ## Mit dem Portal „FrankenFinals Broadcast“ verbinden (optional)
 
@@ -272,6 +273,11 @@ Schlüssel erzeugen: `openssl rand -hex 32` – auf beiden Seiten identisch eint
 - Eine Anmeldung über das Portal gilt 12 Stunden (`PORTAL_SESSION_HOURS`). Wer im Portal gesperrt wird, verliert den
   Zugang spätestens danach.
 - Öffentliche Links (`/p/…`), Timer, Prompter und die Companion-/Overlay-API sind davon nicht betroffen.
+
+**Terminplanung (FF-Planner):** Mit `PLANNER_API_SECRET` kann die Terminplanung zu einem Termin einen Rundown hinterlegen –
+vorhandene auswählen oder neu anlegen. Sie sieht dabei nur Rundowns, die die jeweilige Person hier auch sehen darf, und anlegen
+darf nur, wer hier Rundowns anlegen darf (ab Editor, nicht extern). Die Person muss FF Rundown dafür einmal über das Portal
+geöffnet haben. Links aus der Terminplanung öffnen den Rundown direkt (`/auth/portal?…&next=/#/rundown/<id>`).
 
 Zurück zum Alleinbetrieb: `PORTAL_SSO_SECRET` leeren und neu starten. Über das Portal entstandene Konten haben dann noch
 kein Passwort – ein Admin erzeugt ihnen unter *Benutzer* einen Einladungslink.

@@ -13,6 +13,8 @@ services:
       # Optional mit dem Portal „FrankenFinals Broadcast“ verbinden (Anmeldung dann über das Portal):
       # - PORTAL_URL=https://broadcast.example.de
       # - PORTAL_SSO_SECRET=<openssl rand -hex 32, identisch zu RUNDOWN_SSO_SECRET im Portal>
+      # Optional: Terminplanung (FF-Planner) darf Rundowns auflisten und anlegen:
+      # - PLANNER_API_SECRET=<openssl rand -hex 32, identisch zu RUNDOWN_API_SECRET im Planner>
     volumes:
       - ./data:/data
       # Programmdateien direkt aus diesem Ordner verwenden:
