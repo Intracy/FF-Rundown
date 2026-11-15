@@ -83,3 +83,23 @@ export function upsertPortalUser(t) {
     .run(sub, role, restr, name || u.name, emailTaken ? u.email : email, u.id);
   return { user: Q.userById.get(u.id), created: false, changed };
 }
+
+/** Ziel nach der Portal-Anmeldung (…/auth/portal?ticket=…&next=/#/rundown/5): nur Seiten dieser App */
+export function safeNext(raw) {
+  const v = String(raw || '');
+  return v.length <= 300 && /^\/(?![/\\])[^\s]*$/.test(v) ? v : '';
+}
+
+// Schnittstelle für die Terminplanung (FF-Planner): Rundowns einer Person auflisten und anlegen.
+// PLANNER_API_SECRET (mind. 32 Zeichen), in der Terminplanung identisch als RUNDOWN_API_SECRET.
+// Header „Authorization: Planner <ts>.<sig>“, sig = base64url(HMAC-SHA256(Schlüssel, "rundown-api:<ts>")), ±120 s gültig.
+export const PLANNER_SECRET = String(process.env.PLANNER_API_SECRET || '').trim();
+export const plannerEnabled = () => PLANNER_SECRET.length >= 32;
+export function verifyPlannerAuth(header, secret = PLANNER_SECRET, now = Date.now()) {
+  if (secret.length < 32) return false;
+  const [ts, sig] = String(header || '').replace(/^Planner\s+/i, '').split('.');
+  if (!/^\d+$/.test(ts || '') || !sig || Math.abs(now / 1000 - Number(ts)) > 120) return false;
+  const want = crypto.createHmac('sha256', secret).update(`rundown-api:${ts}`).digest();
+  const got = Buffer.from(sig, 'base64url');
+  return got.length === want.length && crypto.timingSafeEqual(got, want);
+}
